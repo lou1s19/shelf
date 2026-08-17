@@ -16,7 +16,9 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 use crate::ClipboardContext;
-use crate::general_settings::PostStudioRecordingBehaviour;
+use crate::general_settings::{
+    GeneralSettingsStore, PostScreenshotBehaviour, PostStudioRecordingBehaviour,
+};
 
 const WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
@@ -665,15 +667,22 @@ pub async fn run_trigger(app: &AppHandle, trigger: Trigger, ctx: TriggerContext)
     }
 }
 
-pub fn should_open_screenshot_editor(app: &AppHandle, target: &ScreenCaptureTarget) -> bool {
-    let store = match get_store(app) {
-        Ok(Some(store)) => store,
-        _ => return true,
-    };
+// `None` means a matching `SkipEditor` rule asked for a headless flow, so the caller must suppress
+// both the editor and the recordings overlay. Automation rules win over the user's default behaviour.
+pub fn screenshot_behaviour(
+    app: &AppHandle,
+    target: &ScreenCaptureTarget,
+) -> Option<PostScreenshotBehaviour> {
+    let default = GeneralSettingsStore::get(app)
+        .ok()
+        .flatten()
+        .map(|settings| settings.post_screenshot_behaviour)
+        .unwrap_or_default();
 
-    if store.rules.is_empty() {
-        return true;
-    }
+    let store = match get_store(app) {
+        Ok(Some(store)) if !store.rules.is_empty() => store,
+        _ => return Some(default),
+    };
 
     let mut ctx = TriggerContext::new();
     if let Some(kind) = capture_target_kind(target) {
@@ -683,7 +692,17 @@ pub fn should_open_screenshot_editor(app: &AppHandle, target: &ScreenCaptureTarg
         ctx = ctx.with_window_title(title);
     }
 
-    !cap_automation::has_skip_editor(&store, &Trigger::ScreenshotTaken, &ctx)
+    if cap_automation::has_skip_editor(&store, &Trigger::ScreenshotTaken, &ctx) {
+        None
+    } else if cap_automation::has_open_editor(&store, &Trigger::ScreenshotTaken, &ctx) {
+        Some(PostScreenshotBehaviour::OpenEditor)
+    } else {
+        Some(default)
+    }
+}
+
+pub fn should_open_screenshot_editor(app: &AppHandle, target: &ScreenCaptureTarget) -> bool {
+    screenshot_behaviour(app, target) == Some(PostScreenshotBehaviour::OpenEditor)
 }
 
 // `None` means a matching `SkipEditor` rule asked for a headless flow, so the caller must suppress

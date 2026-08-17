@@ -159,6 +159,21 @@ export default function () {
 									queryFn: () => commands.getRecordingMeta(media.path, type),
 								}));
 
+								const dragOut = (e: MouseEvent) => {
+									if (isRecording || e.button !== 0) return;
+									if (
+										e.target instanceof Element &&
+										e.target.closest("button, a, input")
+									)
+										return;
+
+									commands
+										.startFileDrag(media.path)
+										.catch((error) =>
+											console.error("Failed to start drag", error),
+										);
+								};
+
 								return (
 									<Suspense>
 										<div
@@ -166,7 +181,9 @@ export default function () {
 											style={{ "border-color": "rgba(255, 255, 255, 0.1)" }}
 											class={cx(
 												"overflow-hidden relative rounded-xl shadow-sm transition-all duration-200 w-[260px] h-[150px] bg-gray-12 border group",
+												!isRecording && "cursor-grab active:cursor-grabbing",
 											)}
+											onMouseDown={dragOut}
 										>
 											<div
 												class={cx(

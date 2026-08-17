@@ -15,6 +15,7 @@ mod cli;
 mod clip_thumbnails;
 mod crash_sentinel;
 mod deeplink_actions;
+mod drag_out;
 mod editor_window;
 mod exit_shutdown;
 mod export;
@@ -4909,6 +4910,7 @@ fn specta_builder() -> tauri_specta::Builder {
             list_audio_devices,
             list_system_fonts,
             close_recordings_overlay_window,
+            drag_out::start_file_drag,
             fake_window::set_fake_window_bounds,
             fake_window::remove_fake_window,
             focus_captures_panel,

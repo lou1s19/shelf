@@ -98,6 +98,9 @@ async listSystemFonts() : Promise<string[]> {
 async closeRecordingsOverlayWindow() : Promise<void> {
     await TAURI_INVOKE("close_recordings_overlay_window");
 },
+async startFileDrag(path: string) : Promise<null> {
+    return await TAURI_INVOKE("start_file_drag", { path });
+},
 async setFakeWindowBounds(name: string, bounds: LogicalBounds) : Promise<null> {
     return await TAURI_INVOKE("set_fake_window_bounds", { name, bounds });
 },
@@ -958,7 +961,7 @@ export type FrameStyle =
 "macbook"
 export type FrameTheme = "dark" | "light"
 export type FramesRendered = { renderedCount: number; totalFrames: number; type: "FramesRendered" }
-export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme; commercialLicense?: CommercialLicense | null; lastVersion?: string | null; windowTransparency?: boolean; postStudioRecordingBehaviour?: PostStudioRecordingBehaviour; mainWindowRecordingStartBehaviour?: MainWindowRecordingStartBehaviour; custom_cursor_capture2?: boolean; serverUrl?: string; recordingCountdown?: number | null; enableNativeCameraPreview: boolean; autoZoomOnClicks?: boolean; defaultZoomAmount?: number | null; 
+export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme; commercialLicense?: CommercialLicense | null; lastVersion?: string | null; windowTransparency?: boolean; postStudioRecordingBehaviour?: PostStudioRecordingBehaviour; postScreenshotBehaviour?: PostScreenshotBehaviour; mainWindowRecordingStartBehaviour?: MainWindowRecordingStartBehaviour; custom_cursor_capture2?: boolean; serverUrl?: string; recordingCountdown?: number | null; enableNativeCameraPreview: boolean; autoZoomOnClicks?: boolean; defaultZoomAmount?: number | null; 
 /**
  * `None` until [`init`] seeds it from whether this machine has a notched
  * display. From then on it is the user's preference and nothing re-reads
@@ -1052,6 +1055,7 @@ export type PhysicalSize = { width: number; height: number }
 export type Plan = { upgraded: boolean; manual: boolean; last_checked: number }
 export type Platform = "MacOS" | "Windows" | "Linux"
 export type PostDeletionBehaviour = "doNothing" | "reopenRecordingWindow"
+export type PostScreenshotBehaviour = "openEditor" | "showOverlay"
 export type PostStudioRecordingBehaviour = "openEditor" | "showOverlay"
 export type Preset = { name: string; config: ProjectConfiguration }
 export type PresetsStore = { presets: Preset[]; default: number | null }
