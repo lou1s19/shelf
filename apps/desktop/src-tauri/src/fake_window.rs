@@ -121,15 +121,43 @@ pub async fn remove_fake_window(
     Ok(())
 }
 
+// macOS scales `Window::cursor_position` by the primary monitor's factor regardless of which
+// monitor the cursor is on, so a window on a differently scaled monitor needs that factor to
+// convert the cursor back to logical points. Other platforms report it per monitor already.
+fn cursor_scale_factor(_app: &AppHandle, window_scale_factor: f64) -> f64 {
+    #[cfg(target_os = "macos")]
+    {
+        _app.primary_monitor()
+            .ok()
+            .flatten()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or(window_scale_factor)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        window_scale_factor
+    }
+}
+
 fn should_ignore_cursor_events(
     window_position: tauri::PhysicalPosition<i32>,
     mouse_position: tauri::PhysicalPosition<f64>,
     scale_factor: f64,
+    cursor_scale_factor: f64,
     windows: &HashMap<String, LogicalBounds>,
     default_ignore: bool,
     allow_default_interaction: bool,
 ) -> bool {
     let mut saw_bounds = false;
+
+    // The window reports its position in its own monitor's physical pixels while the cursor comes
+    // back scaled by whichever monitor Tauri uses as reference, so both are converted to logical
+    // points before comparing. On single-monitor and uniform-DPI setups the two scales are equal.
+    let window_x = (window_position.x as f64) / scale_factor;
+    let window_y = (window_position.y as f64) / scale_factor;
+    let cursor_x = mouse_position.x / cursor_scale_factor;
+    let cursor_y = mouse_position.y / cursor_scale_factor;
+    let padding = HIT_TEST_PADDING_PHYSICAL / scale_factor;
 
     for bounds in windows.values() {
         let width = bounds.size().width();
@@ -143,22 +171,12 @@ fn should_ignore_cursor_events(
         }
 
         saw_bounds = true;
-        let x_min = (window_position.x as f64) + bounds.position().x() * scale_factor
-            - HIT_TEST_PADDING_PHYSICAL;
-        let x_max = (window_position.x as f64)
-            + (bounds.position().x() + bounds.size().width()) * scale_factor
-            + HIT_TEST_PADDING_PHYSICAL;
-        let y_min = (window_position.y as f64) + bounds.position().y() * scale_factor
-            - HIT_TEST_PADDING_PHYSICAL;
-        let y_max = (window_position.y as f64)
-            + (bounds.position().y() + bounds.size().height()) * scale_factor
-            + HIT_TEST_PADDING_PHYSICAL;
+        let x_min = window_x + bounds.position().x() - padding;
+        let x_max = window_x + bounds.position().x() + bounds.size().width() + padding;
+        let y_min = window_y + bounds.position().y() - padding;
+        let y_max = window_y + bounds.position().y() + bounds.size().height() + padding;
 
-        if mouse_position.x >= x_min
-            && mouse_position.x <= x_max
-            && mouse_position.y >= y_min
-            && mouse_position.y <= y_max
-        {
+        if cursor_x >= x_min && cursor_x <= x_max && cursor_y >= y_min && cursor_y <= y_max {
             return false;
         }
     }
@@ -476,6 +494,7 @@ pub fn spawn_fake_window_listener(app: AppHandle, window: WebviewWindow) {
                 window_position,
                 mouse_position,
                 scale_factor,
+                cursor_scale_factor(&app, scale_factor),
                 windows,
                 default_ignore,
                 allow_default_interaction,
@@ -539,6 +558,7 @@ mod tests {
             tauri::PhysicalPosition::new(100, 200),
             tauri::PhysicalPosition::new(150.0, 240.0),
             2.0,
+            2.0,
             &HashMap::new(),
             false,
             true,
@@ -551,6 +571,7 @@ mod tests {
             tauri::PhysicalPosition::new(0, 0),
             tauri::PhysicalPosition::new(150.0, 240.0),
             2.0,
+            2.0,
             &HashMap::new(),
             false,
             false,
@@ -562,6 +583,7 @@ mod tests {
         assert!(should_ignore_cursor_events(
             tauri::PhysicalPosition::new(100, 200),
             tauri::PhysicalPosition::new(150.0, 240.0),
+            2.0,
             2.0,
             &HashMap::new(),
             true,
@@ -578,9 +600,28 @@ mod tests {
             tauri::PhysicalPosition::new(100, 200),
             tauri::PhysicalPosition::new(150.0, 250.0),
             2.0,
+            2.0,
             &windows,
             false,
             true,
+        ));
+    }
+
+    #[test]
+    fn cursor_on_a_differently_scaled_monitor_is_interactive() {
+        let mut windows = HashMap::new();
+        windows.insert("card".to_string(), bounds(40.0, 1210.0, 260.0, 150.0));
+
+        // 1x monitor left of a 2x primary: the window sits at -2560,-160 logical, and the cursor
+        // over the card's centre is reported as those logical points times the primary's factor.
+        assert!(!should_ignore_cursor_events(
+            tauri::PhysicalPosition::new(-2560, -160),
+            tauri::PhysicalPosition::new(-4780.0, 2250.0),
+            1.0,
+            2.0,
+            &windows,
+            true,
+            false,
         ));
     }
 
@@ -592,6 +633,7 @@ mod tests {
         assert!(should_ignore_cursor_events(
             tauri::PhysicalPosition::new(100, 200),
             tauri::PhysicalPosition::new(50.0, 250.0),
+            2.0,
             2.0,
             &windows,
             false,
@@ -608,6 +650,7 @@ mod tests {
             tauri::PhysicalPosition::new(100, 200),
             tauri::PhysicalPosition::new(50.0, 250.0),
             2.0,
+            2.0,
             &windows,
             false,
             true,
@@ -622,6 +665,7 @@ mod tests {
         assert!(should_ignore_cursor_events(
             tauri::PhysicalPosition::new(0, 0),
             tauri::PhysicalPosition::new(150.0, 240.0),
+            2.0,
             2.0,
             &windows,
             false,
