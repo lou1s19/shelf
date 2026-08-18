@@ -13,14 +13,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const CAP_DIR_NAME: &str = ".cap";
+const SHELF_DIR_NAME: &str = ".shelf";
 const BIN_DIR_NAME: &str = "bin";
 const CLI_BINARY_STEM: &str = "cap-cli";
 
 #[cfg(windows)]
-const SHIM_NAME: &str = "cap.cmd";
+const SHIM_NAME: &str = "shelf.cmd";
 #[cfg(not(windows))]
-const SHIM_NAME: &str = "cap";
+const SHIM_NAME: &str = "shelf";
 
 #[cfg(windows)]
 const CLI_BINARY_NAME: &str = "cap-cli.exe";
@@ -50,16 +50,16 @@ fn home_dir() -> Result<PathBuf, String> {
 
 fn install_dir() -> Result<PathBuf, String> {
     let home = home_dir()?;
-    let cap_bin = home.join(CAP_DIR_NAME).join(BIN_DIR_NAME);
+    let shelf_bin = home.join(SHELF_DIR_NAME).join(BIN_DIR_NAME);
     let local_bin = home.join(".local/bin");
 
-    // Prefer whichever candidate already holds a Cap-managed shim, so `status` and `install` agree
+    // Prefer whichever candidate already holds a Shelf-managed shim, so `status` and `install` agree
     // regardless of whether they run from the GUI or a terminal (whose PATHs differ). Without this,
     // a shim the web installer placed in ~/.local/bin reads as "not installed" from a GUI launch.
     // Also match a shim pointing at a different/older Cap install so `install` repoints it in place
     // rather than leaving it stranded and creating a second shim elsewhere.
     if let Ok(target) = target_path() {
-        for candidate in [&cap_bin, &local_bin] {
+        for candidate in [&shelf_bin, &local_bin] {
             let shim = candidate.join(SHIM_NAME);
             if shim_points_to(&shim, &target).unwrap_or(false) || shim_is_cap_managed(&shim) {
                 return Ok(candidate.clone());
@@ -67,15 +67,15 @@ fn install_dir() -> Result<PathBuf, String> {
         }
     }
 
-    if path_is_present(&cap_bin.join(SHIM_NAME)) || cfg!(windows) {
-        return Ok(cap_bin);
+    if path_is_present(&shelf_bin.join(SHIM_NAME)) || cfg!(windows) {
+        return Ok(shelf_bin);
     }
 
     if path_contains_install_dir(&local_bin) {
         return Ok(local_bin);
     }
 
-    Ok(cap_bin)
+    Ok(shelf_bin)
 }
 
 fn shim_path() -> Result<PathBuf, String> {
@@ -212,11 +212,11 @@ fn path_contains_install_dir(install_dir: &Path) -> bool {
 fn shim_points_to(shim_path: &Path, target_path: &Path) -> Result<bool, String> {
     match fs::read_link(shim_path) {
         // The web installer may symlink to a literal app path that the desktop's canonicalized
-        // current_exe spells differently; compare the resolved paths too so a Cap-managed shim is still
+        // current_exe spells differently; compare the resolved paths too so a Shelf-managed shim is still
         // recognized by status/install/uninstall.
         Ok(link) => Ok(link == target_path || same_file(&link, target_path)),
         // A non-symlink regular file (read_link → InvalidInput) or a missing path is simply not a
-        // Cap-managed shim — let the caller report that as a conflict rather than surfacing a raw error.
+        // Shelf-managed shim — let the caller report that as a conflict rather than surfacing a raw error.
         Err(err)
             if matches!(
                 err.kind(),
@@ -469,7 +469,7 @@ pub fn install() -> Result<CliInstallStatus, String> {
     fs::create_dir_all(&install_dir).map_err(|e| format!("Could not create CLI directory: {e}"))?;
 
     if path_is_present(&shim_path) {
-        // Repoint our own shim and any other Cap-managed shim (e.g. one left by a previous or moved
+        // Repoint our own shim and any other Shelf-managed shim (e.g. one left by a previous or moved
         // install, or by the web installer); only refuse to clobber a genuinely foreign file.
         if !shim_points_to(&shim_path, &target_path)? && !shim_is_cap_managed(&shim_path) {
             return Err(format!(
@@ -668,7 +668,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let shim = dir.path().join(SHIM_NAME);
 
-        // A symlink to a cap-cli binary is Cap-managed even when it points at a different/moved install
+        // A symlink to a cap-cli binary is Shelf-managed even when it points at a different/moved install
         // (the target need not exist — a dangling link from a moved app still counts).
         std::os::unix::fs::symlink("/elsewhere/Cap.app/Contents/MacOS/cap-cli", &shim).unwrap();
         assert!(shim_is_cap_managed(&shim));
@@ -686,17 +686,17 @@ mod tests {
             assert!(shim_is_cap_managed(&shim));
         }
 
-        // A symlink to anything else is not Cap-managed.
+        // A symlink to anything else is not Shelf-managed.
         fs::remove_file(&shim).unwrap();
         std::os::unix::fs::symlink("/bin/ls", &shim).unwrap();
         assert!(!shim_is_cap_managed(&shim));
 
-        // A regular (non-symlink) file is not Cap-managed, so install refuses to clobber it.
+        // A regular (non-symlink) file is not Shelf-managed, so install refuses to clobber it.
         fs::remove_file(&shim).unwrap();
         fs::write(&shim, b"#!/bin/sh\n").unwrap();
         assert!(!shim_is_cap_managed(&shim));
 
-        // A missing path is not Cap-managed.
+        // A missing path is not Shelf-managed.
         fs::remove_file(&shim).unwrap();
         assert!(!shim_is_cap_managed(&shim));
     }
