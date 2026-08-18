@@ -13,6 +13,14 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 
 ## 2026-08-18
 
+- **Review-Funde (Codex) behoben:** `start_file_drag` nahm jeden lesbaren Pfad auf
+  dem Rechner an, jetzt nur noch Dateien aus Caps eigenen Ordnern (Aufnahmen und
+  Screenshots). Statt `std::sync::mpsc::recv()` in einer async-Funktion wartet der
+  Befehl jetzt auf einen `tokio::sync::oneshot`. Der Lese-Notausgang im
+  Fensterspeicher zählt jetzt echte Schreiber mit: liegt ein echter Schreibzugriff
+  an, wird die Nachricht übersprungen, direkt gelesen wird nur, wenn die Sperre
+  ohne Schreiber hängt. Der mitkopierte `Cargo.lock` im Vendor-Ordner ist raus.
+
 - **Absturz behoben:** Sobald sich das Aufnahme-Overlay öffnete, starb die App mit
   `already mutably borrowed: BorrowError` in `tauri-runtime-wry`. Ursache liegt in
   Tauri: der Fensterspeicher ist ein `RefCell` hinter einem `unsafe impl Sync`,
