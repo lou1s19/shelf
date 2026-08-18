@@ -605,7 +605,8 @@ fn resolve_session(id: Option<&str>, path: Option<&Path>) -> Result<Session, Str
         .collect();
     match active.len() {
         0 => Err(
-            "No active recording sessions. Start one with `shelf record start --detach`".to_string(),
+            "No active recording sessions. Start one with `shelf record start --detach`"
+                .to_string(),
         ),
         1 => Ok(active.remove(0)),
         _ => {

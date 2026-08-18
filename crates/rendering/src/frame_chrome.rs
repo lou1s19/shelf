@@ -699,7 +699,8 @@ mod tests {
             FrameStyle::Macbook,
         ] {
             for theme in [FrameTheme::Light, FrameTheme::Dark] {
-                let rgba = rasterize_chrome(style, theme, "example.com", "Recording", 640, 420, 360.0);
+                let rgba =
+                    rasterize_chrome(style, theme, "example.com", "Recording", 640, 420, 360.0);
                 let rgba = rgba.expect("chrome should rasterize");
                 assert_eq!(rgba.len(), 640 * 420 * 4);
                 // Something visible must have been drawn.

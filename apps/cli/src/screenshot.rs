@@ -103,6 +103,8 @@ fn resolve_window(id: &WindowId) -> Result<ScreenCaptureTarget, String> {
         .find(|s| &s.0.id == id)
         .map(|(s, _)| ScreenCaptureTarget::Window { id: s.id })
         .ok_or_else(|| {
-            format!("Window with id '{id}' not found. Run `shelf targets windows` to list window ids")
+            format!(
+                "Window with id '{id}' not found. Run `shelf targets windows` to list window ids"
+            )
         })
 }
