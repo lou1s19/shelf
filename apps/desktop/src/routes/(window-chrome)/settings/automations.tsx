@@ -217,7 +217,7 @@ const TEMPLATES: Template[] = [
 	{
 		id: "ocr-screenshot",
 		name: "Pull the text out of screenshots",
-		description: "Cap reads the text in your screenshot and copies it for you.",
+		description: "Shelf reads the text in your screenshot and copies it for you.",
 		icon: IconLucideScanText,
 		build: () =>
 			buildRule({
@@ -287,7 +287,7 @@ const TEMPLATES: Template[] = [
 				actions: [
 					{
 						type: "notify",
-						titleTemplate: "Cap",
+						titleTemplate: "Shelf",
 						bodyTemplate: "Your recording is ready to share.",
 					},
 				],
@@ -520,7 +520,7 @@ export default function AutomationsSettings() {
 			<SettingsPageContent>
 				<Section
 					title="Automations"
-					description="Run actions automatically when something happens in Cap. Rules are shared with the Cap CLI."
+					description="Run actions automatically when something happens in Shelf. Rules are shared with the Cap CLI."
 				>
 					<Suspense
 						fallback={<div class="h-24 rounded-xl bg-gray-3 animate-pulse" />}

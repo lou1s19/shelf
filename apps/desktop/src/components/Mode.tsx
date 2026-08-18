@@ -32,7 +32,7 @@ const MODE_BUTTONS: ModeButtonConfig[] = [
 		mode: "studio",
 		label: "Studio mode",
 		description:
-			"Records at the highest quality for local rendering later. Opens the Cap editor when you're done.",
+			"Records at the highest quality for local rendering later. Opens the Shelf editor when you're done.",
 		settingsSection: "studio-quality",
 		icon: (p) => <IconCapFilmCut {...p} />,
 		iconClass: "size-[0.9rem] invert dark:invert-0",

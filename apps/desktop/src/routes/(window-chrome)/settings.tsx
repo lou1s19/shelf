@@ -426,7 +426,7 @@ export default function Settings(props: RouteSectionProps) {
 
 			if (!update) {
 				await dialog.message(
-					"You're already using the latest version of Cap.",
+					"You're already using the latest version of Shelf.",
 					{
 						title: "No Update Available",
 						kind: "info",
@@ -436,20 +436,19 @@ export default function Settings(props: RouteSectionProps) {
 			}
 
 			const shouldUpdate = await dialog.confirm(
-				`Version ${update.version} of Cap is available, would you like to install it?`,
-				{ title: "Update Cap", okLabel: "Update", cancelLabel: "Ignore" },
+				`Version ${update.version} of Shelf is available, would you like to install it?`,
+				{ title: "Update Shelf", okLabel: "Update", cancelLabel: "Ignore" },
 			);
 
 			if (shouldUpdate) navigate("/update");
 		} catch (e) {
 			console.error("Failed to check for updates:", e);
-			const openDownload = await dialog
-				.confirm(
-					"Couldn't check for updates automatically. You can download the latest version of Cap from cap.so/download \u2014 your data won't be lost.",
-					{ title: "Update Cap", okLabel: "Download", cancelLabel: "Later" },
+			await dialog
+				.message(
+					"Couldn't check for updates. Shelf has no update feed yet, so new versions are built from source \u2014 your data stays where it is.",
+					{ title: "Update Shelf", kind: "info" },
 				)
-				.catch(() => false);
-			if (openDownload) await shell.open("https://cap.so/download");
+				.catch(() => {});
 		} finally {
 			setIsCheckingForUpdates(false);
 		}
