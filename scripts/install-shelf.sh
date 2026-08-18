@@ -34,8 +34,7 @@ esac
 echo "==> building ($MODE)"
 cd "$REPO"
 pnpm --dir apps/desktop tauri build "${BUILD_FLAGS[@]}" \
-	--config src-tauri/tauri.prod.conf.json \
-	--no-bundle=false 2>&1 | tail -5 || true
+	--config src-tauri/tauri.prod.conf.json 2>&1 | tail -5 || true
 
 SOURCE="$BUNDLE_DIR/$APP_NAME"
 if [ ! -d "$SOURCE" ]; then

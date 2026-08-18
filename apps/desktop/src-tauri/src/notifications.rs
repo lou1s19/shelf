@@ -49,11 +49,9 @@ impl NotificationType {
                 "Unable to copy screenshot to clipboard. Please try again",
                 true,
             ),
-            NotificationType::TextCopiedToClipboard => (
-                "Text Copied",
-                "Recognized text copied to clipboard",
-                false,
-            ),
+            NotificationType::TextCopiedToClipboard => {
+                ("Text Copied", "Recognized text copied to clipboard", false)
+            }
             NotificationType::TextCopyFailed => (
                 "Copy Failed",
                 "Unable to copy text to clipboard. Please try again",
