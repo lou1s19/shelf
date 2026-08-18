@@ -126,7 +126,6 @@ pub fn init(logs_dir: &Path, app_version: &str) -> Option<UnexpectedTermination>
 
     write_record(&path, &record);
 
-
     *SESSION.lock().unwrap() = Some(ActiveSession {
         path,
         record,
@@ -234,7 +233,6 @@ pub fn mark_blur_recovery() {
         session.record.blur_recovery = true;
         write_record(&session.path, &session.record);
     }
-
 }
 
 /// Record that this session is running in software-graphics recovery mode, so an
@@ -248,7 +246,6 @@ pub fn mark_graphics_recovery() {
         session.record.graphics_recovery = true;
         write_record(&session.path, &session.record);
     }
-
 }
 
 /// Record the result of the macOS Liquid Glass material attempt so that, if this
@@ -263,7 +260,6 @@ pub fn set_liquid_glass_outcome(outcome: &str) {
         session.record.liquid_glass = outcome.to_string();
         write_record(&session.path, &session.record);
     }
-
 }
 
 /// Disarm the sentinel after a fully graceful shutdown. If this is never reached (the
@@ -289,7 +285,6 @@ fn report_unexpected_termination(prev: &SessionRecord) {
         prev_blur_recovery = prev.blur_recovery,
         "Previous Shelf session terminated without a clean shutdown"
     );
-
 }
 
 fn process_is_running(pid: u32) -> bool {

@@ -54,6 +54,11 @@ impl From<Hotkey> for Shortcut {
 #[serde(rename_all = "camelCase")]
 #[allow(clippy::enum_variant_names)]
 pub enum HotkeyAction {
+    ToggleRecording,
+    // Retired in favour of `ToggleRecording`. The variants stay so that stored
+    // entries keep their own name: without them every retired name would
+    // deserialize into `Other`, collapse onto one map key and leave a
+    // system-wide shortcut registered that does nothing.
     StartStudioRecording,
     StartInstantRecording,
     StopRecording,
@@ -77,13 +82,44 @@ pub struct HotkeysStore {
     hotkeys: HashMap<HotkeyAction, Hotkey>,
 }
 
+/// Actions that were replaced by [`HotkeyAction::ToggleRecording`], in the order
+/// they are taken over.
+const RETIRED_RECORDING_ACTIONS: [HotkeyAction; 3] = [
+    HotkeyAction::StopRecording,
+    HotkeyAction::StartStudioRecording,
+    HotkeyAction::StartInstantRecording,
+];
+
 impl HotkeysStore {
     pub fn get(app: &AppHandle) -> Result<Option<Self>, String> {
         let Ok(Some(store)) = app.store("store").map(|s| s.get("hotkeys")) else {
             return Ok(None);
         };
 
-        serde_json::from_value(store).map_err(|e| e.to_string())
+        let mut store: Option<Self> = serde_json::from_value(store).map_err(|e| e.to_string())?;
+        if let Some(store) = store.as_mut() {
+            store.migrate();
+        }
+
+        Ok(store)
+    }
+
+    /// Moves a shortcut from a retired action onto the toggle and drops entries
+    /// that can no longer do anything. `Other` collects every unknown name, so
+    /// keeping it would register a shortcut that swallows the keys silently.
+    fn migrate(&mut self) {
+        if !self.hotkeys.contains_key(&HotkeyAction::ToggleRecording)
+            && let Some(hotkey) = RETIRED_RECORDING_ACTIONS
+                .iter()
+                .find_map(|action| self.hotkeys.get(action).copied())
+        {
+            self.hotkeys.insert(HotkeyAction::ToggleRecording, hotkey);
+        }
+
+        for action in RETIRED_RECORDING_ACTIONS {
+            self.hotkeys.remove(&action);
+        }
+        self.hotkeys.remove(&HotkeyAction::Other);
     }
 }
 
@@ -213,6 +249,58 @@ async fn start_recording_from_hotkey(
     Ok(())
 }
 
+fn current_recording_mode(app: &AppHandle) -> cap_recording::RecordingMode {
+    RecordingSettingsStore::get(app)
+        .ok()
+        .flatten()
+        .and_then(|s| s.mode)
+        .unwrap_or_default()
+}
+
+async fn screenshot_current_display(app: &AppHandle) -> Result<(), String> {
+    use scap_targets::Display;
+
+    let display = Display::get_containing_cursor().unwrap_or_else(Display::primary);
+    let target = ScreenCaptureTarget::Display { id: display.id() };
+
+    match recording::take_screenshot(app.clone(), target.clone()).await {
+        Ok(path) => {
+            if crate::automation::should_open_screenshot_editor(app, &target) {
+                let _ = ShowCapWindow::ScreenshotEditor { path }.show(app).await;
+            }
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to take screenshot: {e}")),
+    }
+}
+
+/// One shortcut for both directions: it stops a recording that is running or
+/// starting up, otherwise it starts one in the currently selected mode.
+async fn toggle_recording_from_hotkey(app: AppHandle) -> Result<(), String> {
+    let recording_in_progress = app
+        .state::<ArcLock<App>>()
+        .read()
+        .await
+        .is_recording_active_or_pending();
+
+    if recording_in_progress {
+        // Covers the pending state too, so the shortcut never starts a second
+        // recording during the countdown.
+        return recording::stop_recording(app.clone(), app.state()).await;
+    }
+
+    // Bound before the match so the borrow of `app` ends and the start path can
+    // take ownership of the handle.
+    let mode = current_recording_mode(&app);
+
+    match mode {
+        // Screenshot mode has no recording to toggle, so the shortcut does what
+        // the mode says and captures the display under the cursor.
+        cap_recording::RecordingMode::Screenshot => screenshot_current_display(&app).await,
+        mode => start_recording_from_hotkey(app, mode).await,
+    }
+}
+
 pub fn init(app: &AppHandle) {
     app.plugin(
         tauri_plugin_global_shortcut::Builder::new()
@@ -278,6 +366,7 @@ fn open_area_screenshot_picker(app: &AppHandle) -> Result<(), String> {
 
 async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), String> {
     match action {
+        HotkeyAction::ToggleRecording => toggle_recording_from_hotkey(app).await,
         HotkeyAction::StartStudioRecording => {
             start_recording_from_hotkey(app, cap_recording::RecordingMode::Studio).await
         }
@@ -292,13 +381,7 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
             recording::toggle_pause_recording(app.clone(), app.state()).await
         }
         HotkeyAction::CycleRecordingMode => {
-            let current = RecordingSettingsStore::get(&app)
-                .ok()
-                .flatten()
-                .and_then(|s| s.mode)
-                .unwrap_or_default();
-
-            let next = match current {
+            let next = match current_recording_mode(&app) {
                 cap_recording::RecordingMode::Studio => cap_recording::RecordingMode::Instant,
                 cap_recording::RecordingMode::Instant => cap_recording::RecordingMode::Screenshot,
                 cap_recording::RecordingMode::Screenshot => cap_recording::RecordingMode::Studio,
@@ -336,22 +419,7 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
             .emit(&app);
             Ok(())
         }
-        HotkeyAction::ScreenshotDisplay => {
-            use scap_targets::Display;
-
-            let display = Display::get_containing_cursor().unwrap_or_else(Display::primary);
-            let target = ScreenCaptureTarget::Display { id: display.id() };
-
-            match recording::take_screenshot(app.clone(), target.clone()).await {
-                Ok(path) => {
-                    if crate::automation::should_open_screenshot_editor(&app, &target) {
-                        let _ = ShowCapWindow::ScreenshotEditor { path }.show(&app).await;
-                    }
-                    Ok(())
-                }
-                Err(e) => Err(format!("Failed to take screenshot: {e}")),
-            }
-        }
+        HotkeyAction::ScreenshotDisplay => screenshot_current_display(&app).await,
         HotkeyAction::ScreenshotWindow => {
             use scap_targets::Window;
 
@@ -412,7 +480,65 @@ pub fn set_hotkey(app: AppHandle, action: HotkeyAction, hotkey: Option<Hotkey>) 
 
 #[cfg(test)]
 mod tests {
-    use super::should_confirm_without_microphone;
+    use super::{Hotkey, HotkeyAction, HotkeysStore, should_confirm_without_microphone};
+    use tauri_plugin_global_shortcut::Code;
+
+    fn hotkey(code: Code) -> Hotkey {
+        Hotkey {
+            code,
+            meta: false,
+            ctrl: true,
+            alt: false,
+            shift: true,
+        }
+    }
+
+    fn store_with(entries: &[(HotkeyAction, Hotkey)]) -> HotkeysStore {
+        let mut store = HotkeysStore::default();
+        for (action, key) in entries {
+            store.hotkeys.insert(*action, *key);
+        }
+        store
+    }
+
+    #[test]
+    fn migration_moves_stop_recording_onto_the_toggle() {
+        let binding = hotkey(Code::KeyS);
+        let mut store = store_with(&[(HotkeyAction::StopRecording, binding)]);
+
+        store.migrate();
+
+        assert_eq!(
+            store.hotkeys.get(&HotkeyAction::ToggleRecording),
+            Some(&binding)
+        );
+        assert!(!store.hotkeys.contains_key(&HotkeyAction::StopRecording));
+    }
+
+    #[test]
+    fn migration_keeps_an_existing_toggle_binding() {
+        let toggle = hotkey(Code::KeyT);
+        let mut store = store_with(&[
+            (HotkeyAction::ToggleRecording, toggle),
+            (HotkeyAction::StopRecording, hotkey(Code::KeyS)),
+        ]);
+
+        store.migrate();
+
+        assert_eq!(
+            store.hotkeys.get(&HotkeyAction::ToggleRecording),
+            Some(&toggle)
+        );
+    }
+
+    #[test]
+    fn migration_drops_unknown_actions() {
+        let mut store = store_with(&[(HotkeyAction::Other, hotkey(Code::KeyX))]);
+
+        store.migrate();
+
+        assert!(store.hotkeys.is_empty());
+    }
 
     #[test]
     fn confirms_when_enabled_without_microphone() {

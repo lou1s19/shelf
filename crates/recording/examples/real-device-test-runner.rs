@@ -1447,7 +1447,9 @@ async fn execute_recording(
 
     let completed = handle.stop().await?;
 
-    let pretty_name = Local::now().format("Shelf %Y-%m-%d at %H.%M.%S").to_string();
+    let pretty_name = Local::now()
+        .format("Shelf %Y-%m-%d at %H.%M.%S")
+        .to_string();
     let meta = RecordingMeta {
         platform: Some(Platform::default()),
         project_path: recording_dir.clone(),

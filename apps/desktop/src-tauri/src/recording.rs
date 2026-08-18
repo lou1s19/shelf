@@ -5,9 +5,9 @@ use cap_project::CursorMoveEvent;
 use cap_project::cursor::SHORT_CURSOR_SHAPE_DEBOUNCE_MS;
 use cap_project::{
     CameraShape, CursorClickEvent, GlideDirection, InstantRecordingMeta, MultipleSegments,
-    Platform, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
-    StudioRecordingMeta, StudioRecordingStatus, TimelineConfiguration, TimelineSegment, ZoomMode,
-    ZoomSegment, cursor::CursorEvents,
+    Platform, ProjectConfiguration, RecordingMeta, RecordingMetaInner, StudioRecordingMeta,
+    StudioRecordingStatus, TimelineConfiguration, TimelineSegment, ZoomMode, ZoomSegment,
+    cursor::CursorEvents,
 };
 #[cfg(target_os = "macos")]
 use cap_recording::SendableShareableContent;
@@ -2033,7 +2033,6 @@ pub async fn start_recording(
     let _ = RecordingEvent::Started.emit(&app);
     let _ = RecordingStarted.emit(&app);
 
-
     spawn_actor({
         let app = app.clone();
         let state_mtx = Arc::clone(&state_mtx);
@@ -2562,8 +2561,11 @@ pub async fn take_screenshot(
                     | CapWindowId::RecordingsOverlay
             )
         {
+            // A window that is already off screen cannot end up in the capture, so only a window
+            // that really had to disappear is worth waiting for.
+            let was_visible = window.is_visible().unwrap_or(true);
             hide_overlay(&window);
-            hid_any = true;
+            hid_any |= was_visible;
         }
     }
 
@@ -2573,11 +2575,26 @@ pub async fn take_screenshot(
 
     let automation_target = target.clone();
 
+    // Decided before the capture, not after the encode, because the pin has to go up while the
+    // file is still being written.
+    let post_screenshot_behaviour =
+        crate::automation::screenshot_behaviour(&app, &automation_target);
+    let should_pin =
+        !ocr_requested && post_screenshot_behaviour == Some(PostScreenshotBehaviour::ShowOverlay);
+
     let image = capture_screenshot(target)
         .await
         .map_err(|e| format!("Failed to capture screenshot: {e}"))?;
 
     AppSounds::Notification.play();
+
+    // Built while the pixels are still in memory: the pin shows this straight away instead of
+    // waiting for the PNG, and a 260x150 card no longer has to load a multi megabyte file.
+    let pin_preview = if should_pin {
+        build_pin_preview(&image)
+    } else {
+        None
+    };
 
     let image_width = image.width();
     let image_height = image.height();
@@ -2661,12 +2678,30 @@ pub async fn take_screenshot(
         .write(&project_file_path)
         .map_err(|e| format!("Failed to save project config: {e}"))?;
 
-    let is_large_capture = (image_width as u64).saturating_mul(image_height as u64) > 8_000_000;
-    let compression = if is_large_capture {
-        image::codecs::png::CompressionType::Fast
-    } else {
-        image::codecs::png::CompressionType::Default
-    };
+    if let Some(preview) = pin_preview {
+        let overlay_was_open = CapWindowId::RecordingsOverlay.get(&app).is_some();
+        let _ = ShowCapWindow::RecordingsOverlay.show(&app).await;
+
+        let event = ScreenshotPinPreview {
+            path: image_path.clone(),
+            preview,
+        };
+        let _ = event.emit(&app);
+
+        // A window that was just created has no listener yet. Repeating the event costs nothing,
+        // because the overlay ignores paths it already knows, and it beats waiting a fixed second
+        // for a webview that is usually up much sooner.
+        if !overlay_was_open {
+            let app_handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                for delay in [80u64, 120, 200, 300, 400] {
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    let _ = event.emit(&app_handle);
+                }
+            });
+        }
+    }
+
     let image_path_for_emit = image_path.clone();
     let image_path_for_write = image_path.clone();
     let project_path_for_ocr = project_file_path.clone();
@@ -2677,10 +2712,13 @@ pub async fn take_screenshot(
         let encode_result = tokio::task::spawn_blocking(move || -> Result<(), String> {
             let file = std::fs::File::create(&image_path_for_write)
                 .map_err(|e| format!("Failed to create screenshot file: {e}"))?;
+            // Screen content compresses well anyway. Deflate level 6 with adaptive filtering
+            // costs three times the encode time for roughly a tenth less file size, which nobody
+            // notices, while everyone notices the wait.
             let encoder = image::codecs::png::PngEncoder::new_with_quality(
                 std::io::BufWriter::new(file),
-                compression,
-                image::codecs::png::FilterType::Adaptive,
+                image::codecs::png::CompressionType::Fast,
+                image::codecs::png::FilterType::Up,
             );
 
             ImageEncoder::write_image(
@@ -2708,17 +2746,11 @@ pub async fn take_screenshot(
                     return;
                 }
 
-                if crate::automation::screenshot_behaviour(&app_handle, &automation_target)
-                    == Some(PostScreenshotBehaviour::ShowOverlay)
-                {
-                    let overlay_was_open =
-                        CapWindowId::RecordingsOverlay.get(&app_handle).is_some();
-                    let _ = ShowCapWindow::RecordingsOverlay.show(&app_handle).await;
-
-                    // The overlay only registers its event listener once its webview has mounted,
-                    // so a freshly created window would miss the event that follows.
-                    if !overlay_was_open {
-                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                if post_screenshot_behaviour == Some(PostScreenshotBehaviour::ClipboardOnly) {
+                    let copied =
+                        write_screenshot_to_clipboard(&app_handle, &image_path_for_emit).await;
+                    if let Err(e) = copied {
+                        error!("Failed to copy screenshot to clipboard: {e}");
                     }
                 }
 
@@ -2756,6 +2788,199 @@ pub async fn take_screenshot(
     });
 
     Ok(image_path)
+}
+
+/// Sent as soon as the capture exists in memory, long before the PNG is written, so the pin can
+/// appear right away. `preview` is a small JPEG data URL in card size; the overlay swaps it for
+/// the real file once [`crate::NewScreenshotAdded`] follows.
+#[derive(Deserialize, specta::Type, Serialize, tauri_specta::Event, Debug, Clone)]
+pub struct ScreenshotPinPreview {
+    pub path: PathBuf,
+    pub preview: String,
+}
+
+/// Twice the card size, so the pin stays sharp on a retina display.
+const PIN_PREVIEW_WIDTH: u32 = 520;
+const PIN_PREVIEW_HEIGHT: u32 = 300;
+
+fn build_pin_preview(image: &image::DynamicImage) -> Option<String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+
+    let thumbnail = image
+        .thumbnail(PIN_PREVIEW_WIDTH, PIN_PREVIEW_HEIGHT)
+        .to_rgb8();
+    let (width, height) = thumbnail.dimensions();
+
+    let mut jpeg = Vec::new();
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80);
+    if let Err(e) = encoder.encode(
+        thumbnail.as_raw(),
+        width,
+        height,
+        image::ExtendedColorType::Rgb8,
+    ) {
+        warn!("Failed to build the screenshot pin preview: {e}");
+        return None;
+    }
+
+    Some(format!("data:image/jpeg;base64,{}", STANDARD.encode(&jpeg)))
+}
+
+const SHARED_FILE_DIR_NAME: &str = "Shelf shared files";
+const SHARED_FILE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// A screenshot is stored as `original.png` inside its own `.cap` folder. That name is fine
+/// internally and useless outside: dragged onto the desktop or pasted somewhere, every screenshot
+/// would arrive under the same name and overwrite the one before it. Files therefore leave the app
+/// through a link in the temp folder that carries the project's own name, which is already unique
+/// because the `.cap` folder name is.
+///
+/// Anything that is not a file directly inside a `.cap` folder is handed back unchanged.
+pub fn shareable_file_path(path: &Path) -> PathBuf {
+    match build_shareable_file(path) {
+        Ok(Some(shared)) => shared,
+        Ok(None) => path.to_path_buf(),
+        Err(e) => {
+            warn!("Falling back to the internal file name: {e}");
+            path.to_path_buf()
+        }
+    }
+}
+
+fn build_shareable_file(path: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(project_dir) = path.parent() else {
+        return Ok(None);
+    };
+    if project_dir.extension().and_then(|e| e.to_str()) != Some("cap") {
+        return Ok(None);
+    }
+    let Some(project_name) = project_dir.file_stem().and_then(|s| s.to_str()) else {
+        return Ok(None);
+    };
+    let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("png");
+
+    let dir = std::env::temp_dir().join(SHARED_FILE_DIR_NAME);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("Failed to create the shared files directory: {e}"))?;
+    prune_shared_files(&dir);
+
+    let target = dir.join(format!("{project_name}.{extension}"));
+    // An older link under this name belongs to the same project, so its content is stale at worst.
+    let _ = std::fs::remove_file(&target);
+
+    // A hard link costs no disk space; copying is the fallback for a different volume.
+    if std::fs::hard_link(path, &target).is_err() {
+        std::fs::copy(path, &target)
+            .map_err(|e| format!("Failed to prepare the file for sharing: {e}"))?;
+    }
+
+    Ok(Some(target))
+}
+
+/// The temp folder is cleaned by the system eventually, but not soon enough to let links pile up
+/// for every screenshot ever dragged out.
+fn prune_shared_files(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let is_stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .map(|modified| {
+                modified
+                    .elapsed()
+                    .map(|age| age > SHARED_FILE_MAX_AGE)
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false);
+
+        if is_stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// Puts a screenshot on the clipboard in several shapes at once: the image data, so image
+/// capable apps paste the picture, plus the file URL and the plain path, so a terminal or any
+/// text field pastes something it can work with instead of nothing.
+#[cfg(target_os = "macos")]
+pub async fn write_screenshot_to_clipboard(_app: &AppHandle, path: &Path) -> Result<(), String> {
+    use cocoa::appkit::{NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeString};
+    use cocoa::base::{id, nil};
+    use cocoa::foundation::{NSArray, NSData, NSString, NSUInteger, NSURL};
+    use objc::{msg_send, sel, sel_impl};
+    use std::ffi::c_void;
+
+    let bytes = std::fs::read(path).map_err(|e| format!("Failed to read screenshot: {e}"))?;
+    // What lands in a text field or a terminal is the readable name, not `original.png`.
+    let path_string = shareable_file_path(path).to_string_lossy().to_string();
+
+    unsafe {
+        let pasteboard: id = NSPasteboard::generalPasteboard(nil);
+        if pasteboard == nil {
+            return Err("General pasteboard unavailable".to_string());
+        }
+
+        let ns_path = NSString::alloc(nil).init_str(&path_string);
+        let file_url = NSURL::fileURLWithPath_(nil, ns_path);
+        let file_url_string = NSURL::absoluteString(file_url);
+
+        let file_url_type = NSString::alloc(nil).init_str("public.file-url");
+        // Deprecated, but still what a lot of apps read when they expect a file.
+        let filenames_type = NSString::alloc(nil).init_str("NSFilenamesPboardType");
+
+        // declareTypes + setData/setString keeps every representation on ONE pasteboard item.
+        // Each app then picks the type it understands out of the same paste.
+        pasteboard.clearContents();
+        pasteboard.declareTypes_owner(
+            NSArray::arrayWithObjects(
+                nil,
+                &[
+                    NSPasteboardTypePNG,
+                    file_url_type,
+                    filenames_type,
+                    NSPasteboardTypeString,
+                ],
+            ),
+            nil,
+        );
+
+        let data = NSData::dataWithBytes_length_(
+            nil,
+            bytes.as_ptr() as *const c_void,
+            bytes.len() as NSUInteger,
+        );
+        pasteboard.setData_forType(data, NSPasteboardTypePNG);
+        pasteboard.setString_forType(file_url_string, file_url_type);
+        pasteboard
+            .setPropertyList_forType(NSArray::arrayWithObjects(nil, &[ns_path]), filenames_type);
+        pasteboard.setString_forType(ns_path, NSPasteboardTypeString);
+
+        let _: () = msg_send![ns_path, release];
+        let _: () = msg_send![file_url_type, release];
+        let _: () = msg_send![filenames_type, release];
+    }
+
+    Ok(())
+}
+
+/// Off macOS only the image goes onto the clipboard, through the app's own clipboard context:
+/// on X11 the clipboard belongs to whoever owns it, so a throwaway context would drop it again.
+#[cfg(not(target_os = "macos"))]
+pub async fn write_screenshot_to_clipboard(app: &AppHandle, path: &Path) -> Result<(), String> {
+    use clipboard_rs::Clipboard;
+
+    let image = clipboard_rs::RustImageData::from_path(path.to_string_lossy().as_ref())
+        .map_err(|e| format!("Failed to read screenshot: {e}"))?;
+
+    let clipboard = app.state::<Arc<tokio::sync::RwLock<crate::ClipboardContext>>>();
+    clipboard
+        .write()
+        .await
+        .set_image(image)
+        .map_err(|e| format!("Failed to copy screenshot to clipboard: {e}"))
 }
 
 /// Copies the text found in a freshly captured screenshot to the clipboard. The capture only
@@ -2809,7 +3034,6 @@ async fn handle_recording_end(
     recording_dir: PathBuf,
 ) -> Result<(), String> {
     let cleared = app.clear_recording_state();
-
 
     app.disconnected_inputs.clear();
     app.camera_in_use = false;
@@ -3226,13 +3450,8 @@ async fn finalize_studio_recording(
     info!("Starting background finalization for recording");
 
     let recording_dir_for_remux = recording_dir.clone();
-    let app_for_remux = app.clone();
     let remux_result = tokio::task::spawn_blocking(move || {
-        remux_fragmented_recording_with_trigger(
-            &recording_dir_for_remux,
-            "recording_stop",
-            Some(&app_for_remux),
-        )
+        remux_fragmented_recording_with_trigger(&recording_dir_for_remux, "recording_stop")
     })
     .await
     .map_err(|e| format!("Recording finalization task panicked: {e}"))?;
@@ -3648,25 +3867,22 @@ fn mark_fragmented_recording_for_ffmpeg_export(recording_dir: &Path) -> Result<(
 }
 
 pub fn remux_fragmented_recording(recording_dir: &Path) -> Result<(), String> {
-    remux_fragmented_recording_with_trigger(recording_dir, "manual_remux", None)
+    remux_fragmented_recording_with_trigger(recording_dir, "manual_remux")
 }
 
 pub fn remux_fragmented_recording_with_trigger(
     recording_dir: &Path,
     trigger: &'static str,
-    app: Option<&AppHandle>,
 ) -> Result<(), String> {
     let incomplete_recording = RecoveryManager::inspect_recording(recording_dir);
 
     if let Some(recording) = incomplete_recording {
         let normal_stop = trigger == "recording_stop";
-        let validation_start = std::time::Instant::now();
         let outcome = if normal_stop {
             RecoveryManager::finalize(&recording)
         } else {
             RecoveryManager::recover(&recording)
         };
-        let validation_took_ms = validation_start.elapsed().as_millis() as u64;
 
         match outcome {
             Ok(_) => {
@@ -3677,47 +3893,10 @@ pub fn remux_fragmented_recording_with_trigger(
                     info!("Successfully recovered fragmented recording");
                 }
 
-                if let Some(app_handle) = app
-                    && !normal_stop
-                {
-                    let recovered_duration_secs = RecordingMeta::load_for_project(recording_dir)
-                        .ok()
-                        .and_then(|meta| match meta.inner {
-                            RecordingMetaInner::Studio(studio) => match *studio {
-                                StudioRecordingMeta::MultipleSegments { inner } => Some(
-                                    inner
-                                        .segments
-                                        .iter()
-                                        .filter_map(|seg| seg.display.start_time)
-                                        .fold(0.0_f64, |acc, v| acc.max(v)),
-                                ),
-                                StudioRecordingMeta::SingleSegment { .. } => None,
-                            },
-                            _ => None,
-                        })
-                        .map(|s| s as u64)
-                        .unwrap_or_default();
-
-                    let segments_recovered = RecordingMeta::load_for_project(recording_dir)
-                        .ok()
-                        .and_then(|meta| match meta.inner {
-                            RecordingMetaInner::Studio(studio) => match *studio {
-                                StudioRecordingMeta::MultipleSegments { inner } => {
-                                    Some(inner.segments.len() as u32)
-                                }
-                                StudioRecordingMeta::SingleSegment { .. } => Some(1),
-                            },
-                            _ => None,
-                        })
-                        .unwrap_or(0);
-
-                }
                 Ok(())
             }
             Err(e) => {
                 let reason = format!("{e}");
-                if let Some(app_handle) = app {
-                }
                 let action = if normal_stop { "finalize" } else { "recover" };
                 Err(format!("Failed to {action} recording: {reason}"))
             }
@@ -3726,8 +3905,6 @@ pub fn remux_fragmented_recording_with_trigger(
         Err("Could not find fragments to remux".to_string())
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

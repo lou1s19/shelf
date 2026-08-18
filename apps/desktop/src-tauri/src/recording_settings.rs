@@ -46,14 +46,32 @@ impl RecordingSettingsStore {
         }
     }
 
-    pub fn set_mode(app: &AppHandle<Wry>, mode: RecordingMode) -> Result<(), String> {
+    /// Read/modify/write of the whole settings blob. Every setter goes through
+    /// here so a tray-side change can never drop the fields it did not touch.
+    fn update(app: &AppHandle<Wry>, apply: impl FnOnce(&mut Self)) -> Result<(), String> {
         let store = app.store("store").map_err(|e| e.to_string())?;
 
         let mut settings = Self::get(app)?.unwrap_or_default();
-        settings.mode = Some(mode);
+        apply(&mut settings);
 
         store.set(Self::KEY, serde_json::json!(settings));
         store.save().map_err(|e| e.to_string())
+    }
+
+    pub fn set_mode(app: &AppHandle<Wry>, mode: RecordingMode) -> Result<(), String> {
+        Self::update(app, |settings| settings.mode = Some(mode))
+    }
+
+    pub fn set_mic_name(app: &AppHandle<Wry>, name: Option<String>) -> Result<(), String> {
+        Self::update(app, |settings| settings.mic_name = name)
+    }
+
+    pub fn set_camera_id(app: &AppHandle<Wry>, id: Option<DeviceOrModelID>) -> Result<(), String> {
+        Self::update(app, |settings| settings.camera_id = id)
+    }
+
+    pub fn set_system_audio(app: &AppHandle<Wry>, enabled: bool) -> Result<(), String> {
+        Self::update(app, |settings| settings.system_audio = enabled)
     }
 
     pub fn camera_settings_for(

@@ -5,9 +5,8 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 ## Offen
 
 Die vollständige Liste mit Begründungen steht in `TODO.md`. Kurz:
-Vorschau-Fenster beim Text-Kürzel, Oberfläche aufräumen (Louis findet sie
-unübersichtlich, welcher Bildschirm genau ist noch zu klären), eigener
-Update-Weg.
+Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg, Tray-Symbol
+gestalterisch nochmal ansehen.
 
 
 - **Deep-Link-Schema** heißt weiter `cap-desktop`. Kann jetzt umbenannt werden,
@@ -22,6 +21,69 @@ Update-Weg.
 - `.env.example` fehlt.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
+
+## 2026-08-18 (Oberfläche aufgeräumt, Screenshots schnell)
+
+Sechs Punkte von Louis, parallel von mehreren Agents umgesetzt. Eigenes
+GitHub-Repo angelegt: `lou1s19/shelf`, privat. `origin` zeigt dorthin, der alte
+Cap-Fork bleibt als `cap-fork` erhalten. Achtung bei einem späteren Wechsel auf
+Open Source: der Fork erbt AGPLv3, eine andere Lizenz ist nicht möglich.
+
+- **Tray-Menü ist jetzt die Steuerzentrale.** Modus direkt mit Haken statt im
+  Untermenü, Kamera und Mikrofon als Untermenü, Systemton ankreuzbar, Start und
+  Stop als erster Eintrag. Die Geräteliste wird nicht beim Öffnen eingesammelt,
+  sondern aus dem ohnehin laufenden `devices-updated`-Event gespiegelt, sonst
+  hinge das Menü. Ein Klick aufs Symbol öffnet jetzt immer das Menü, vorher
+  stoppte er während einer Aufnahme sofort, wodurch das Menü unbenutzbar war.
+  Nicht im Tray: die Feinauswahl welcher Bildschirm oder welches Fenster, dafür
+  müsste bei jedem Öffnen die Fensterliste aufgezählt werden.
+- **Tray-Symbol** stammt nicht mehr von Cap. Vier Zustände als Silhouette im
+  Template-Modus, Quellen liegen unter `icons/src/`. Gestalterisch noch nicht
+  überzeugend, siehe `TODO.md`.
+- **Einstellungen aufgeteilt.** `general.tsx` von 1470 auf 253 Zeilen. Aufnahme-
+  Einstellungen liegen in Recordings, Screenshot-Einstellungen in Screenshots,
+  beide Tabs haben Unter-Reiter Library und Settings. In General bleiben nur
+  Theme, Dock-Icon, Benachrichtigungen, Update-Kanal. Die Sprungmarken aus dem
+  Hauptfenster zu den Qualitätsstufen wurden mitgezogen, sonst wären sie ins
+  Leere gelaufen.
+- **Shortcuts von 12 auf 9.** Start und Stop teilen sich `toggleRecording`, die
+  Entscheidung fällt über `is_recording_active_or_pending()`. Alte Bindungen auf
+  `stopRecording` werden einmalig übernommen. Die drei Picker-Kürzel für
+  Display, Fenster und Bereich sind raus, das gibt es im Tray. Neu: Warnung bei
+  doppelt belegten Kürzeln, vorher feuerten stillschweigend beide Aktionen.
+- **Nach einem Screenshot geht nichts mehr auf.** `PostScreenshotBehaviour` hat
+  jetzt vier Werte (`openEditor`, `showOverlay`, `saveOnly`, `clipboardOnly`),
+  Standard ist `showOverlay`, also nur pinnen. Einmalige Migration zieht ein
+  gespeichertes `openEditor` auf `showOverlay`.
+- **Pin repariert.** Kartenzahl richtet sich nach der echten Bildschirmhöhe,
+  kein unsichtbares Scrollen mehr. Auto-Ausblenden über
+  `screenshot_pin_auto_hide_seconds` (`null` = nie, Standard 10), pausiert bei
+  Mauskontakt. Ziehen entfernt die Karte, aber nur bei echtem Drop. Das Overlay
+  wandert auf den Monitor, auf dem der Screenshot entstand.
+- **Zwischenablage terminaltauglich.** Beim Kopieren liegen PNG-Daten,
+  `public.file-url`, `NSFilenamesPboardType` und der Pfad als Text auf einem
+  Pasteboard-Item. Bildprogramme bekommen das Bild, das Terminal den Pfad.
+- **Eindeutige Dateinamen beim Verlassen der App.** Intern heißt jedes Bild
+  weiter `original.png`, daran hängen fünf Stellen. Beim Herausziehen und
+  Kopieren wird ein Hardlink in `$TMPDIR/Shelf shared files/` mit dem Namen des
+  `.cap`-Ordners angelegt, Links älter als 24 Stunden werden aufgeräumt.
+- **Screenshot von etwa 3 Sekunden auf 100 bis 200 Millisekunden.** Vier
+  Ursachen: unoptimierte Bildbibliotheken im Debug-Bau (`opt-level = 2` für
+  Abhängigkeiten in `Cargo.toml`), das Event kam erst nach dem vollen
+  PNG-Encode (jetzt erscheint sofort eine JPEG-Vorschau, die Datei folgt), ein
+  festes `sleep(1000ms)` für den Overlay-Start (Fenster wird jetzt versteckt
+  statt zerstört), und `CompressionType::Default` mit adaptiver Filterung (jetzt
+  `Fast` und `FilterType::Up`, Datei rund 10 Prozent größer).
+- **CI eingerichtet** (`.github/workflows/ci.yml`): Typecheck, Biome und
+  `cargo fmt` auf Linux. Der Rust-Build läuft bewusst NICHT in der CI, er
+  bräuchte macOS-Runner zum zehnfachen Minutenpreis und würde das Kontingent
+  eines privaten Repos in wenigen Läufen aufbrauchen.
+
+**Bewusst nicht gebaut:** Cmd+C über der Pin-Karte. Das Overlay ist ein
+NonActivating-NSPanel und wird erst durch einen Klick Key-Window, beim reinen
+Überfahren kommen keine Tastatur-Events an. Die Alternativen wären ein global
+registriertes Cmd+C oder das Panel beim Hovern zum Key-Window zu machen, beides
+schlimmer als das Problem. Stattdessen sind Copy und Export jetzt echte Knöpfe.
 
 ## 2026-08-18 (Trennung von Cap)
 

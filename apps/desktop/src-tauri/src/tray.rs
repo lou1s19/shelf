@@ -4,7 +4,7 @@ use crate::{
     recording_settings::{RecordingSettingsStore, RecordingTargetMode},
     windows::ShowCapWindow,
 };
-use cap_recording::RecordingMode;
+use cap_recording::{RecordingMode, feeds::camera::DeviceOrModelID};
 
 use cap_project::{RecordingMeta, RecordingMetaInner};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,19 +12,21 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use tauri::Manager;
-use tauri::menu::{IconMenuItem, MenuId, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, IconMenuItem, MenuId, PredefinedMenuItem, Submenu};
 use tauri::{
     AppHandle,
     image::Image,
     menu::{Menu, MenuItem},
     tray::{TrayIcon, TrayIconBuilder},
 };
+use tauri::{Listener, Manager};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_specta::Event;
 
 const PREVIOUS_ITEM_PREFIX: &str = "previous_item_";
+const CAMERA_ITEM_PREFIX: &str = "camera_item_";
+const MIC_ITEM_PREFIX: &str = "mic_item_";
 const MAX_PREVIOUS_ITEMS: usize = 6;
 const MAX_TITLE_LENGTH: usize = 30;
 const THUMBNAIL_SIZE: u32 = 32;
@@ -71,6 +73,7 @@ impl LinuxTrayIcon {
 #[derive(Debug)]
 pub enum TrayItem {
     OpenCap,
+    StartStopRecording,
     RecordDisplay,
     RecordWindow,
     RecordArea,
@@ -85,12 +88,18 @@ pub enum TrayItem {
     ModeInstant,
     ModeScreenshot,
     RequestPermissions,
+    /// Empty payload means "no camera".
+    SelectCamera(String),
+    /// Empty payload means "no microphone".
+    SelectMicrophone(String),
+    ToggleSystemAudio,
 }
 
 impl From<TrayItem> for MenuId {
     fn from(value: TrayItem) -> Self {
         match value {
             TrayItem::OpenCap => "open_cap",
+            TrayItem::StartStopRecording => "start_stop_recording",
             TrayItem::RecordDisplay => "record_display",
             TrayItem::RecordWindow => "record_window",
             TrayItem::RecordArea => "record_area",
@@ -107,6 +116,13 @@ impl From<TrayItem> for MenuId {
             TrayItem::ModeInstant => "mode_instant",
             TrayItem::ModeScreenshot => "mode_screenshot",
             TrayItem::RequestPermissions => "request_permissions",
+            TrayItem::SelectCamera(id) => {
+                return format!("{CAMERA_ITEM_PREFIX}{id}").into();
+            }
+            TrayItem::SelectMicrophone(name) => {
+                return format!("{MIC_ITEM_PREFIX}{name}").into();
+            }
+            TrayItem::ToggleSystemAudio => "toggle_system_audio",
         }
         .into()
     }
@@ -122,8 +138,17 @@ impl TryFrom<MenuId> for TrayItem {
             return Ok(TrayItem::PreviousItem(path.to_string()));
         }
 
+        if let Some(id) = id_str.strip_prefix(CAMERA_ITEM_PREFIX) {
+            return Ok(TrayItem::SelectCamera(id.to_string()));
+        }
+
+        if let Some(name) = id_str.strip_prefix(MIC_ITEM_PREFIX) {
+            return Ok(TrayItem::SelectMicrophone(name.to_string()));
+        }
+
         match id_str {
             "open_cap" => Ok(TrayItem::OpenCap),
+            "start_stop_recording" => Ok(TrayItem::StartStopRecording),
             "record_display" => Ok(TrayItem::RecordDisplay),
             "record_window" => Ok(TrayItem::RecordWindow),
             "record_area" => Ok(TrayItem::RecordArea),
@@ -137,6 +162,7 @@ impl TryFrom<MenuId> for TrayItem {
             "mode_instant" => Ok(TrayItem::ModeInstant),
             "mode_screenshot" => Ok(TrayItem::ModeScreenshot),
             "request_permissions" => Ok(TrayItem::RequestPermissions),
+            "toggle_system_audio" => Ok(TrayItem::ToggleSystemAudio),
             value => Err(format!("Invalid tray item id {value}")),
         }
     }
@@ -367,8 +393,26 @@ fn should_use_minimal_onboarding_tray_menu(app: &AppHandle) -> bool {
     !crate::permissions::do_permissions_check(false).necessary_granted()
 }
 
+/// Camera and microphone lists mirrored from the app-wide `devices-updated`
+/// event. The tray menu is built ahead of time, not when it opens, so it must
+/// never enumerate devices itself: that work already runs on a poll elsewhere
+/// and blocking the main thread with it would stall the menu.
+#[derive(Default, Clone)]
+struct TrayDeviceCache {
+    cameras: Vec<cap_camera::CameraInfo>,
+    microphones: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct DevicesUpdatedPayload {
+    cameras: Vec<cap_camera::CameraInfo>,
+    microphones: Vec<String>,
+}
+
 pub(crate) struct TrayMenuCache {
     cache: Arc<Mutex<PreviousItemsCache>>,
+    devices: Arc<Mutex<TrayDeviceCache>>,
+    is_recording: Arc<AtomicBool>,
 }
 
 pub(crate) fn refresh_tray_menu_for_app(app: &AppHandle) {
@@ -378,31 +422,91 @@ pub(crate) fn refresh_tray_menu_for_app(app: &AppHandle) {
     refresh_tray_menu(app, &state.cache);
 }
 
-fn create_mode_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
-    let current_mode = get_current_mode(app);
+fn camera_matches(info: &cap_camera::CameraInfo, selected: &DeviceOrModelID) -> bool {
+    match selected {
+        DeviceOrModelID::DeviceID(device_id) => info.device_id() == device_id,
+        DeviceOrModelID::ModelID(model_id) => info.model_id() == Some(model_id),
+    }
+}
 
-    let submenu = Submenu::with_id(app, "select_mode", "Select Mode", true)?;
+fn create_camera_submenu(
+    app: &AppHandle,
+    devices: &TrayDeviceCache,
+    selected: Option<&DeviceOrModelID>,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let submenu = Submenu::with_id(app, "camera_menu", "Camera", true)?;
 
-    let modes = [
-        (TrayItem::ModeStudio, RecordingMode::Studio, "Studio"),
-        (TrayItem::ModeInstant, RecordingMode::Instant, "Instant"),
-        (
-            TrayItem::ModeScreenshot,
-            RecordingMode::Screenshot,
-            "Screenshot",
-        ),
-    ];
+    submenu.append(&CheckMenuItem::with_id(
+        app,
+        TrayItem::SelectCamera(String::new()),
+        "No Camera",
+        true,
+        selected.is_none(),
+        None::<&str>,
+    )?)?;
 
-    for (tray_item, mode, label) in modes {
-        let is_selected = current_mode == mode;
-        let display_label = if is_selected {
-            format!("✓ {label}")
-        } else {
-            format!("   {label}")
-        };
+    if devices.cameras.is_empty() {
+        submenu.append(&MenuItem::with_id(
+            app,
+            "camera_menu_empty",
+            "No cameras found",
+            false,
+            None::<&str>,
+        )?)?;
+        return Ok(submenu);
+    }
 
-        let menu_item = MenuItem::with_id(app, tray_item, display_label, true, None::<&str>)?;
-        submenu.append(&menu_item)?;
+    for camera in &devices.cameras {
+        let checked = selected.is_some_and(|id| camera_matches(camera, id));
+        submenu.append(&CheckMenuItem::with_id(
+            app,
+            TrayItem::SelectCamera(camera.device_id().to_string()),
+            camera.display_name(),
+            true,
+            checked,
+            None::<&str>,
+        )?)?;
+    }
+
+    Ok(submenu)
+}
+
+fn create_microphone_submenu(
+    app: &AppHandle,
+    devices: &TrayDeviceCache,
+    selected: Option<&str>,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let submenu = Submenu::with_id(app, "microphone_menu", "Microphone", true)?;
+
+    submenu.append(&CheckMenuItem::with_id(
+        app,
+        TrayItem::SelectMicrophone(String::new()),
+        "No Microphone",
+        true,
+        selected.is_none(),
+        None::<&str>,
+    )?)?;
+
+    if devices.microphones.is_empty() {
+        submenu.append(&MenuItem::with_id(
+            app,
+            "microphone_menu_empty",
+            "No microphones found",
+            false,
+            None::<&str>,
+        )?)?;
+        return Ok(submenu);
+    }
+
+    for name in &devices.microphones {
+        submenu.append(&CheckMenuItem::with_id(
+            app,
+            TrayItem::SelectMicrophone(name.clone()),
+            name,
+            true,
+            selected == Some(name.as_str()),
+            None::<&str>,
+        )?)?;
     }
 
     Ok(submenu)
@@ -433,20 +537,46 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         );
     }
 
-    let previous_submenu = create_previous_submenu(app, cache)?;
-    let mode_submenu = create_mode_submenu(app)?;
-    let current_mode = get_current_mode(app);
+    let settings = RecordingSettingsStore::get(app)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let current_mode = settings.mode.unwrap_or_default();
     let is_screenshot_mode = current_mode == RecordingMode::Screenshot;
+
+    let (devices, is_recording) = match app.try_state::<TrayMenuCache>() {
+        Some(state) => (
+            state.devices.lock().unwrap().clone(),
+            state.is_recording.load(Ordering::Relaxed),
+        ),
+        None => (TrayDeviceCache::default(), false),
+    };
+
+    let previous_submenu = create_previous_submenu(app, cache)?;
+    let camera_submenu = create_camera_submenu(app, &devices, settings.camera_id.as_ref())?;
+    let microphone_submenu =
+        create_microphone_submenu(app, &devices, settings.mic_name.as_deref())?;
 
     let menu = Menu::new(app)?;
 
+    // 1. The one action the menu exists for.
+    let primary_label = if is_recording {
+        "Stop Recording"
+    } else if is_screenshot_mode {
+        "Take Screenshot"
+    } else {
+        "Start Recording"
+    };
     menu.append(&MenuItem::with_id(
         app,
-        TrayItem::OpenCap,
-        "Open Main Window",
+        TrayItem::StartStopRecording,
+        primary_label,
         true,
         None::<&str>,
     )?)?;
+
+    // 2. Quick actions that pick a target first.
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
 
     if is_screenshot_mode {
         menu.append(&MenuItem::with_id(
@@ -501,19 +631,51 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         )?)?;
     }
 
+    // 3. Mode, visible at a glance instead of hidden in a submenu.
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
-        TrayItem::ImportVideo,
-        "Import Media...",
-        true,
+        "mode_header",
+        "Mode",
+        false,
         None::<&str>,
     )?)?;
 
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&mode_submenu)?;
-    menu.append(&previous_submenu)?;
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    for (tray_item, mode, label) in [
+        (TrayItem::ModeStudio, RecordingMode::Studio, "Studio"),
+        (TrayItem::ModeInstant, RecordingMode::Instant, "Instant"),
+        (
+            TrayItem::ModeScreenshot,
+            RecordingMode::Screenshot,
+            "Screenshot",
+        ),
+    ] {
+        menu.append(&CheckMenuItem::with_id(
+            app,
+            tray_item,
+            label,
+            true,
+            current_mode == mode,
+            None::<&str>,
+        )?)?;
+    }
 
+    // 4. Devices.
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&camera_submenu)?;
+    menu.append(&microphone_submenu)?;
+    menu.append(&CheckMenuItem::with_id(
+        app,
+        TrayItem::ToggleSystemAudio,
+        "System Audio",
+        crate::platform::is_system_audio_capture_supported(),
+        settings.system_audio,
+        None::<&str>,
+    )?)?;
+
+    // 5. Everything already captured.
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&previous_submenu)?;
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::ViewAllRecordings,
@@ -525,6 +687,23 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         app,
         TrayItem::ViewAllScreenshots,
         "View all screenshots",
+        true,
+        None::<&str>,
+    )?)?;
+
+    // 6. Rarely needed now that the menu carries the controls.
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        TrayItem::ImportVideo,
+        "Import Media...",
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        TrayItem::OpenCap,
+        "Open Main Window",
         true,
         None::<&str>,
     )?)?;
@@ -748,12 +927,138 @@ fn handle_mode_selection(
     refresh_tray_menu(app, cache);
 }
 
+fn take_screenshot_of_cursor_display(app: &AppHandle) {
+    let app = app.clone();
+    tokio::spawn(async move {
+        use cap_recording::screen_capture::ScreenCaptureTarget;
+        use scap_targets::Display;
+
+        let display = Display::get_containing_cursor().unwrap_or_else(Display::primary);
+        let target = ScreenCaptureTarget::Display { id: display.id() };
+
+        match recording::take_screenshot(app.clone(), target.clone()).await {
+            Ok(path) => {
+                if crate::automation::should_open_screenshot_editor(&app, &target) {
+                    let _ = ShowCapWindow::ScreenshotEditor { path }.show(&app).await;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to take screenshot: {e}");
+            }
+        }
+    });
+}
+
+/// The menu's primary item. Deliberately goes through the same
+/// `RequestStartRecording` event the hotkeys and the UI use, so the saved
+/// target, camera, microphone and system audio are applied in one place.
+fn handle_start_stop(app: &AppHandle, is_recording: &Arc<AtomicBool>) {
+    if is_recording.load(Ordering::Relaxed) {
+        let app = app.clone();
+        tokio::spawn(async move {
+            if let Err(e) = recording::stop_recording(app.clone(), app.state()).await {
+                tracing::error!("Failed to stop recording from tray: {e}");
+            }
+        });
+        return;
+    }
+
+    let mode = get_current_mode(app);
+    if mode == RecordingMode::Screenshot {
+        take_screenshot_of_cursor_display(app);
+        return;
+    }
+
+    let _ = crate::RequestStartRecording { mode }.emit(app);
+}
+
+fn handle_camera_selection(
+    app: &AppHandle,
+    device_id: &str,
+    cache: &Arc<Mutex<PreviousItemsCache>>,
+) {
+    let id = if device_id.is_empty() {
+        None
+    } else {
+        let devices = app.try_state::<TrayMenuCache>().map(|state| {
+            let devices = state.devices.lock().unwrap();
+            devices.cameras.clone()
+        });
+
+        let Some(info) = devices
+            .unwrap_or_default()
+            .into_iter()
+            .find(|camera| camera.device_id() == device_id)
+        else {
+            tracing::warn!("Tray selected a camera that is no longer listed: {device_id}");
+            return;
+        };
+
+        Some(DeviceOrModelID::from_info(&info))
+    };
+
+    if let Err(e) = RecordingSettingsStore::set_camera_id(app, id.clone()) {
+        tracing::error!("Failed to persist camera selection: {e}");
+        return;
+    }
+
+    refresh_tray_menu(app, cache);
+
+    let app = app.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::set_camera_input(app.clone(), app.state(), id, None).await {
+            tracing::error!("Failed to apply camera selection from tray: {e}");
+        }
+    });
+}
+
+fn handle_microphone_selection(
+    app: &AppHandle,
+    name: &str,
+    cache: &Arc<Mutex<PreviousItemsCache>>,
+) {
+    let label = (!name.is_empty()).then(|| name.to_string());
+
+    if let Err(e) = RecordingSettingsStore::set_mic_name(app, label.clone()) {
+        tracing::error!("Failed to persist microphone selection: {e}");
+        return;
+    }
+
+    refresh_tray_menu(app, cache);
+
+    let app = app.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::set_mic_input(app.state(), label).await {
+            tracing::error!("Failed to apply microphone selection from tray: {e}");
+        }
+    });
+}
+
+fn handle_system_audio_toggle(app: &AppHandle, cache: &Arc<Mutex<PreviousItemsCache>>) {
+    let enabled = RecordingSettingsStore::get(app)
+        .ok()
+        .flatten()
+        .map(|settings| settings.system_audio)
+        .unwrap_or_default();
+
+    if let Err(e) = RecordingSettingsStore::set_system_audio(app, !enabled) {
+        tracing::error!("Failed to persist system audio setting: {e}");
+        return;
+    }
+
+    refresh_tray_menu(app, cache);
+}
+
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let items = load_all_previous_items(app, false);
     let cache = Arc::new(Mutex::new(PreviousItemsCache { items }));
+    let devices = Arc::new(Mutex::new(TrayDeviceCache::default()));
+    let is_recording = Arc::new(AtomicBool::new(false));
 
     app.manage(TrayMenuCache {
         cache: cache.clone(),
+        devices: devices.clone(),
+        is_recording: is_recording.clone(),
     });
 
     let menu = {
@@ -761,7 +1066,6 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         build_tray_menu(app, &cache_guard)?
     };
     let app = app.clone();
-    let is_recording = Arc::new(AtomicBool::new(false));
 
     let current_mode = get_current_mode(&app);
     let initial_icon = Image::from_bytes(get_mode_icon(current_mode))?;
@@ -774,7 +1078,11 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event({
             let app_handle = app.clone();
             let cache = cache.clone();
+            let is_recording = is_recording.clone();
             move |app: &AppHandle, event| match TrayItem::try_from(event.id) {
+                Ok(TrayItem::StartStopRecording) => {
+                    handle_start_stop(app, &is_recording);
+                }
                 Ok(TrayItem::OpenCap) => {
                     let app = app.clone();
                     tokio::spawn(async move {
@@ -804,27 +1112,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     });
                 }
                 Ok(TrayItem::TakeScreenshot) => {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        use cap_recording::screen_capture::ScreenCaptureTarget;
-                        use scap_targets::Display;
-
-                        let display =
-                            Display::get_containing_cursor().unwrap_or_else(Display::primary);
-                        let target = ScreenCaptureTarget::Display { id: display.id() };
-
-                        match recording::take_screenshot(app.clone(), target.clone()).await {
-                            Ok(path) => {
-                                if crate::automation::should_open_screenshot_editor(&app, &target) {
-                                    let _ =
-                                        ShowCapWindow::ScreenshotEditor { path }.show(&app).await;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to take screenshot: {e}");
-                            }
-                        }
-                    });
+                    take_screenshot_of_cursor_display(app);
                 }
                 Ok(TrayItem::ImportVideo) => {
                     let app = app.clone();
@@ -936,6 +1224,15 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 Ok(TrayItem::ModeScreenshot) => {
                     handle_mode_selection(app, RecordingMode::Screenshot, &cache);
                 }
+                Ok(TrayItem::SelectCamera(device_id)) => {
+                    handle_camera_selection(app, &device_id, &cache);
+                }
+                Ok(TrayItem::SelectMicrophone(name)) => {
+                    handle_microphone_selection(app, &name, &cache);
+                }
+                Ok(TrayItem::ToggleSystemAudio) => {
+                    handle_system_audio_toggle(app, &cache);
+                }
                 Ok(TrayItem::RequestPermissions) => {
                     let app = app.clone();
                     tokio::spawn(async move {
@@ -945,20 +1242,12 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 _ => {}
             }
         })
-        .on_tray_icon_event({
-            let is_recording = Arc::clone(&is_recording);
-            let app_handle = app.clone();
-            move |tray, event| {
-                if let tauri::tray::TrayIconEvent::Click { .. } = event {
-                    if is_recording.load(Ordering::Relaxed) {
-                        let app = app_handle.clone();
-                        tokio::spawn(async move {
-                            let _ = recording::stop_recording(app.clone(), app.state()).await;
-                        });
-                    } else {
-                        let _ = tray.set_visible(true);
-                    }
-                }
+        .on_tray_icon_event(move |tray, event| {
+            // A click always opens the menu, including while recording. Stopping
+            // lives in the menu now, and stopping on click would make the menu
+            // unusable during a recording.
+            if let tauri::tray::TrayIconEvent::Click { .. } = event {
+                let _ = tray.set_visible(true);
             }
         })
         .build(&app);
@@ -1016,8 +1305,10 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     RecordingStarted::listen_any(&app, {
         let app = app.clone();
         let is_recording = is_recording.clone();
+        let cache = cache.clone();
         move |_| {
             is_recording.store(true, Ordering::Relaxed);
+            refresh_tray_menu(&app, &cache);
 
             if cfg!(target_os = "windows") {
                 return;
@@ -1036,8 +1327,10 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     RecordingStopped::listen_any(&app, {
         let app_handle = app.clone();
         let is_recording = is_recording.clone();
+        let cache = cache.clone();
         move |_| {
             is_recording.store(false, Ordering::Relaxed);
+            refresh_tray_menu(&app_handle, &cache);
 
             if cfg!(target_os = "windows") {
                 return;
@@ -1077,6 +1370,41 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 add_new_item_to_cache(&cache_clone, &app_handle, path);
                 refresh_tray_menu(&app_handle, &cache_clone);
             }
+        }
+    });
+
+    // `DevicesUpdated` carries no Deserialize impl, so the typed listener is out
+    // of reach; the raw listener uses the same event name and payload shape.
+    app.listen_any(<crate::DevicesUpdated as tauri_specta::Event>::NAME, {
+        let app_handle = app.clone();
+        let cache = cache.clone();
+        let devices = devices.clone();
+        move |event| {
+            let payload = match serde_json::from_str::<DevicesUpdatedPayload>(event.payload()) {
+                Ok(payload) => payload,
+                Err(e) => {
+                    tracing::warn!("Failed to read devices-updated payload for tray: {e}");
+                    return;
+                }
+            };
+
+            {
+                let mut guard = devices.lock().unwrap();
+                let unchanged = guard.microphones == payload.microphones
+                    && guard.cameras.len() == payload.cameras.len()
+                    && guard
+                        .cameras
+                        .iter()
+                        .zip(payload.cameras.iter())
+                        .all(|(a, b)| a.device_id() == b.device_id());
+                if unchanged {
+                    return;
+                }
+                guard.cameras = payload.cameras;
+                guard.microphones = payload.microphones;
+            }
+
+            refresh_tray_menu(&app_handle, &cache);
         }
     });
 

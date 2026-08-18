@@ -169,8 +169,6 @@ fn update_max(cell: &AtomicU64, candidate: u64) {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;

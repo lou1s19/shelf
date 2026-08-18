@@ -73,7 +73,7 @@ pub async fn find_incomplete_recordings(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn recover_recording(app: AppHandle, project_path: String) -> Result<String, String> {
+pub async fn recover_recording(project_path: String) -> Result<String, String> {
     let path = PathBuf::from(&project_path);
 
     let recording = tokio::task::spawn_blocking(move || RecoveryManager::inspect_recording(&path))
@@ -85,16 +85,7 @@ pub async fn recover_recording(app: AppHandle, project_path: String) -> Result<S
         return Err("No recoverable segments found".to_string());
     }
 
-    let estimated_duration_secs = recording.estimated_duration.as_secs();
-    let recover_start = std::time::Instant::now();
-    let recovered = match RecoveryManager::recover(&recording) {
-        Ok(r) => r,
-        Err(e) => {
-            let reason = format!("{e}");
-            return Err(reason);
-        }
-    };
-    let validation_took_ms = recover_start.elapsed().as_millis() as u64;
+    let recovered = RecoveryManager::recover(&recording).map_err(|e| format!("{e}"))?;
 
     let segment_count = match &recovered.meta {
         StudioRecordingMeta::SingleSegment { .. } => 1,
@@ -105,7 +96,6 @@ pub async fn recover_recording(app: AppHandle, project_path: String) -> Result<S
         "Recovered recording with {} segments: {}",
         segment_count, project_path
     );
-
 
     let display_output_path = match &recovered.meta {
         StudioRecordingMeta::SingleSegment { segment } => {

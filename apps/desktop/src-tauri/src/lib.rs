@@ -2856,21 +2856,9 @@ pub fn is_valid_video(path: &std::path::Path) -> bool {
 
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(clipboard))]
-async fn copy_screenshot_to_clipboard(
-    clipboard: MutableState<'_, ClipboardContext>,
-    path: String,
-) -> Result<(), String> {
-    println!("Copying screenshot to clipboard: {path:?}");
-
-    let img_data = clipboard_rs::RustImageData::from_path(&path)
-        .map_err(|e| format!("Failed to copy screenshot to clipboard: {e}"))?;
-    clipboard
-        .write()
-        .await
-        .set_image(img_data)
-        .map_err(|err| format!("Failed to copy screenshot to clipboard: {err}"))?;
-    Ok(())
+#[instrument(skip(app))]
+async fn copy_screenshot_to_clipboard(app: AppHandle, path: String) -> Result<(), String> {
+    recording::write_screenshot_to_clipboard(&app, std::path::Path::new(&path)).await
 }
 
 #[tauri::command]
@@ -3245,25 +3233,10 @@ async fn get_video_metadata(path: PathBuf) -> Result<VideoRecordingMetadata, Str
 #[specta::specta]
 #[instrument(skip(app))]
 fn close_recordings_overlay_window(app: AppHandle) {
-    #[cfg(target_os = "macos")]
-    {
-        let app_for_close = app.clone();
-        app.run_on_main_thread(move || {
-            use tauri_nspanel::ManagerExt;
-            if let Ok(panel) =
-                app_for_close.get_webview_panel(&CapWindowId::RecordingsOverlay.label())
-            {
-                panel.released_when_closed(false);
-                panel.close();
-            }
-        })
-        .ok();
-    }
-
-    if !cfg!(target_os = "macos")
-        && let Some(window) = CapWindowId::RecordingsOverlay.get(&app)
-    {
-        let _ = window.close();
+    // Hidden, not destroyed. A live webview is what makes the next screenshot pin instantly
+    // instead of waiting for a fresh window to boot, and a hidden transparent panel costs nothing.
+    if let Some(window) = CapWindowId::RecordingsOverlay.get(&app) {
+        crate::windows::hide_overlay(&window);
     }
 }
 
@@ -4613,6 +4586,7 @@ fn specta_builder() -> tauri_specta::Builder {
             audio_meter::AudioInputLevelChange,
             captions::DownloadProgress,
             recording::RecordingEvent,
+            recording::ScreenshotPinPreview,
             RecordingDeleted,
             recordings_locations::RecordingsMigrationProgress,
             target_select_overlay::TargetUnderCursor,
@@ -4679,7 +4653,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
         system.refresh_memory();
         camera::init_preview_profile(system.total_memory());
     }
-
 
     let tauri_context = tauri::generate_context!();
 

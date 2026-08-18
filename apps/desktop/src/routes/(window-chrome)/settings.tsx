@@ -65,16 +65,6 @@ export default function Settings(props: RouteSectionProps) {
 			icon: IconCapSettings,
 		},
 		{
-			href: "hotkeys",
-			name: "Shortcuts",
-			icon: IconCapHotkeys,
-		},
-		{
-			href: "cli",
-			name: "CLI",
-			icon: IconLucideTerminal,
-		},
-		{
 			href: "recordings",
 			name: "Recordings",
 			icon: IconLucideSquarePlay,
@@ -85,6 +75,11 @@ export default function Settings(props: RouteSectionProps) {
 			icon: IconLucideImage,
 		},
 		{
+			href: "hotkeys",
+			name: "Shortcuts",
+			icon: IconCapHotkeys,
+		},
+		{
 			href: "automations",
 			name: "Automations",
 			icon: IconLucideZap,
@@ -93,6 +88,11 @@ export default function Settings(props: RouteSectionProps) {
 			href: "transcription",
 			name: "Transcription",
 			icon: IconCapCaptions,
+		},
+		{
+			href: "cli",
+			name: "CLI",
+			icon: IconLucideTerminal,
 		},
 		{
 			href: "experimental",

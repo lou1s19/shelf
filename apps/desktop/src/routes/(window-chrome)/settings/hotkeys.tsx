@@ -3,6 +3,7 @@ import { type as ostype } from "@tauri-apps/plugin-os";
 import {
 	batch,
 	createEffect,
+	createMemo,
 	createResource,
 	createSignal,
 	For,
@@ -20,24 +21,100 @@ import {
 	type HotkeyAction,
 	type HotkeysStore,
 } from "~/utils/tauri";
-import { Section, SectionCard, SettingsPageContent } from "./Setting";
+import {
+	Section,
+	SectionRows,
+	SettingItem,
+	SettingsPageContent,
+} from "./Setting";
 
-const ACTION_TEXT = {
-	startStudioRecording: "Start studio recording",
-	startInstantRecording: "Start instant recording",
-	restartRecording: "Restart recording",
-	stopRecording: "Stop recording",
-	togglePauseRecording: "Pause/resume recording",
-	cycleRecordingMode: "Cycle recording mode",
-	openRecordingPicker: "Open recording picker",
-	openRecordingPickerDisplay: "Record display",
-	openRecordingPickerWindow: "Record window",
-	openRecordingPickerArea: "Record area",
-	screenshotDisplay: "Screenshot current display",
-	screenshotWindow: "Screenshot current window",
-	screenshotArea: "Screenshot area picker",
-	screenshotAreaOcr: "Area screenshot to text",
-} satisfies { [K in HotkeyAction]?: string };
+type ShortcutEntry = {
+	id: HotkeyAction;
+	label: string;
+	hint?: string;
+};
+
+type ShortcutGroup = {
+	title: string;
+	description: string;
+	entries: ShortcutEntry[];
+};
+
+/**
+ * Single source for the order and the labels of every configurable shortcut.
+ * An action that is not listed here cannot be set in the UI.
+ */
+const SHORTCUT_GROUPS: ShortcutGroup[] = [
+	{
+		title: "Recording",
+		description:
+			"System wide shortcuts for recording. The first one starts and stops with the same keys.",
+		entries: [
+			{
+				id: "toggleRecording",
+				label: "Start or stop recording",
+				hint: "Starts in the selected mode and stops a recording that is already running.",
+			},
+			{ id: "togglePauseRecording", label: "Pause or resume recording" },
+			{ id: "restartRecording", label: "Restart recording" },
+			{ id: "cycleRecordingMode", label: "Switch recording mode" },
+			{ id: "openRecordingPicker", label: "Open recording picker" },
+		],
+	},
+	{
+		title: "Screenshots",
+		description: "Capture the screen without starting a recording.",
+		entries: [
+			{ id: "screenshotDisplay", label: "Screenshot current display" },
+			{ id: "screenshotWindow", label: "Screenshot current window" },
+			{ id: "screenshotArea", label: "Screenshot area" },
+			{ id: "screenshotAreaOcr", label: "Area screenshot to text" },
+		],
+	},
+];
+
+const ACTION_LABELS = new Map<HotkeyAction, string>(
+	SHORTCUT_GROUPS.flatMap((group) =>
+		group.entries.map((entry) => [entry.id, entry.label] as const),
+	),
+);
+
+/**
+ * Actions that were replaced by "toggleRecording". A stored shortcut moves over
+ * once, then the old entries are dropped so nothing stays registered invisibly.
+ */
+const RETIRED_TOGGLE_ACTIONS = [
+	"stopRecording",
+	"startStudioRecording",
+	"startInstantRecording",
+] as const;
+
+type Hotkeys = { [K in HotkeyAction]?: Hotkey };
+
+function migrateHotkeys(hotkeys: Hotkeys): Hotkeys {
+	const next: Hotkeys = { ...hotkeys };
+
+	if (!next.toggleRecording) {
+		const source = RETIRED_TOGGLE_ACTIONS.find((action) => next[action]);
+		if (source) next.toggleRecording = next[source];
+	}
+
+	for (const action of RETIRED_TOGGLE_ACTIONS) delete next[action];
+	// "other" collects every name this version does not know.
+	delete next.other;
+
+	return next;
+}
+
+function bindingKey(binding: Hotkey) {
+	return [
+		binding.code,
+		binding.meta,
+		binding.ctrl,
+		binding.alt,
+		binding.shift,
+	].join("+");
+}
 
 export default function () {
 	const [store] = createResource(() => hotkeysStore.get());
@@ -51,9 +128,9 @@ export default function () {
 
 const MODIFIER_KEYS = new Set(["Meta", "Shift", "Control", "Alt"]);
 function Inner(props: { initialStore: HotkeysStore | null }) {
-	const [hotkeys, setHotkeys] = createStore<{
-		[K in HotkeyAction]?: Hotkey;
-	}>(props.initialStore?.hotkeys ?? {});
+	const [hotkeys, setHotkeys] = createStore<Hotkeys>(
+		migrateHotkeys(props.initialStore?.hotkeys ?? {}),
+	);
 
 	createEffect(() => {
 		hotkeysStore.set({ hotkeys: { ...hotkeys } as HotkeysStore["hotkeys"] });
@@ -83,136 +160,151 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 		}
 	});
 
-	const actions = () =>
-		[
-			"screenshotDisplay",
-			"screenshotWindow",
-			"screenshotArea",
-			"screenshotAreaOcr",
-			"openRecordingPicker",
-			"stopRecording",
-			"restartRecording",
-			"togglePauseRecording",
-			"cycleRecordingMode",
-			"openRecordingPickerDisplay",
-			"openRecordingPickerWindow",
-			"openRecordingPickerArea",
-		] satisfies Array<keyof typeof ACTION_TEXT>;
+	/**
+	 * Two actions on the same keys both fire. That is not blocked, but every
+	 * affected row says which other action it shares its shortcut with.
+	 */
+	const conflicts = createMemo(() => {
+		const byBinding = new Map<string, HotkeyAction[]>();
+
+		for (const action of ACTION_LABELS.keys()) {
+			const binding = hotkeys[action];
+			if (!binding) continue;
+
+			const key = bindingKey(binding);
+			byBinding.set(key, [...(byBinding.get(key) ?? []), action]);
+		}
+
+		const result = new Map<HotkeyAction, string>();
+		for (const actions of byBinding.values()) {
+			if (actions.length < 2) continue;
+
+			for (const action of actions) {
+				const others = actions
+					.filter((other) => other !== action)
+					.map((other) => ACTION_LABELS.get(other));
+				result.set(action, `Same shortcut as ${others.join(", ")}.`);
+			}
+		}
+
+		return result;
+	});
 
 	return (
 		<div class="cap-settings-page flex flex-col h-full custom-scroll">
 			<SettingsPageContent>
-				<Section
-					title="Shortcuts"
-					description="Configure system-wide keyboard shortcuts to control Shelf."
-				>
-					<SectionCard class="flex flex-col gap-3 p-4">
-						<Index each={actions()}>
-							{(item, idx) => {
-								createEventListener(window, "click", () => {
-									if (listening()?.action !== item()) return;
+				<For each={SHORTCUT_GROUPS}>
+					{(group) => (
+						<Section title={group.title} description={group.description}>
+							<SectionRows>
+								<Index each={group.entries}>
+									{(entry) => {
+										const action = () => entry().id;
 
-									batch(() => {
-										setHotkeys(item(), listening()?.prev);
-										setListening();
-									});
-								});
+										createEventListener(window, "click", () => {
+											if (listening()?.action !== action()) return;
 
-								return (
-									<>
-										<div class="flex flex-row justify-between items-center w-full h-8">
-											<p class="text-[13px] text-gray-12">
-												{ACTION_TEXT[item()]}
-											</p>
-											<Switch>
-												<Match when={listening()?.action === item()}>
-													<div class="flex flex-row-reverse gap-2 justify-between items-center h-full text-sm rounded-lg w-fit">
-														<Show
-															when={hotkeys[item()]}
-															fallback={
-																<p class="text-[13px] text-gray-11">
-																	Set hotkeys...
-																</p>
-															}
-														>
-															{(binding) => <HotkeyText binding={binding()} />}
-														</Show>
-														<div class="flex flex-row items-center gap-0.5">
-															<Show when={hotkeys[item()]}>
+											batch(() => {
+												setHotkeys(action(), listening()?.prev);
+												setListening();
+											});
+										});
+
+										return (
+											<SettingItem
+												label={entry().label}
+												description={conflicts().get(action()) ?? entry().hint}
+											>
+												<Switch>
+													<Match when={listening()?.action === action()}>
+														<div class="flex flex-row-reverse gap-2 justify-between items-center h-full text-sm rounded-lg w-fit">
+															<Show
+																when={hotkeys[action()]}
+																fallback={
+																	<p class="text-[13px] text-gray-11">
+																		Set hotkeys...
+																	</p>
+																}
+															>
+																{(binding) => (
+																	<HotkeyText binding={binding()} />
+																)}
+															</Show>
+															<div class="flex flex-row items-center gap-0.5">
+																<Show when={hotkeys[action()]}>
+																	<button
+																		class="w-fit"
+																		type="button"
+																		onClick={(e) => {
+																			e.stopPropagation();
+
+																			setListening();
+																			commands.setHotkey(
+																				action(),
+																				hotkeys[action()] ?? null,
+																			);
+																		}}
+																	>
+																		<IconCapCircleCheck class="transition-colors text-gray-12 hover:text-gray-10 size-5" />
+																	</button>
+																</Show>
 																<button
-																	class="w-fit"
 																	type="button"
-																	onBlur={(e) => console.log(e)}
 																	onClick={(e) => {
 																		e.stopPropagation();
-
-																		setListening();
-																		commands.setHotkey(
-																			item(),
-																			hotkeys[item()] ?? null,
-																		);
+																		batch(() => {
+																			setListening();
+																			// biome-ignore lint/style/noNonNullAssertion: store
+																			setHotkeys(action(), undefined!);
+																			commands.setHotkey(action(), null);
+																		});
 																	}}
 																>
-																	<IconCapCircleCheck class="transition-colors text-gray-12 hover:text-gray-10 size-5" />
+																	<IconCapCircleX class="text-red-500 transition-colors hover:text-red-700 size-5" />
 																</button>
-															</Show>
-															<button
-																type="button"
-																onClick={(e) => {
-																	e.stopPropagation();
-																	batch(() => {
-																		setListening();
-																		// biome-ignore lint/style/noNonNullAssertion: store
-																		setHotkeys(item(), undefined!);
-																		commands.setHotkey(item(), null);
-																	});
-																}}
-															>
-																<IconCapCircleX class="text-red-500 transition-colors hover:text-red-700 size-5" />
-															</button>
+															</div>
 														</div>
-													</div>
-												</Match>
-												<Match when={listening()?.action !== item()}>
-													<button
-														type="button"
-														class="text-sm bg-transparent rounded-lg"
-														onClick={() => {
-															// ensures that previously selected hotkey is cleared by letting the event propagate before listening to the new hotkey
-															setTimeout(() => {
-																setListening({
-																	action: item(),
-																	prev: hotkeys[item()],
-																});
-															}, 1);
-														}}
-													>
-														<Show
-															when={hotkeys[item()]}
-															fallback={
-																<p
-																	class="flex items-center text-[11px] uppercase transition-colors hover:bg-gray-6 hover:border-gray-7
-                        py-3 px-2.5 h-5 bg-gray-4 border border-gray-5 rounded-lg text-gray-11 hover:text-gray-12"
-																>
-																	None
-																</p>
-															}
+													</Match>
+													<Match when={listening()?.action !== action()}>
+														<button
+															type="button"
+															class="text-sm bg-transparent rounded-lg"
+															onClick={() => {
+																// ensures that previously selected hotkey is cleared by letting the event propagate before listening to the new hotkey
+																setTimeout(() => {
+																	setListening({
+																		action: action(),
+																		prev: hotkeys[action()],
+																	});
+																}, 1);
+															}}
 														>
-															{(binding) => <HotkeyText binding={binding()} />}
-														</Show>
-													</button>
-												</Match>
-											</Switch>
-										</div>
-										{idx !== actions().length - 1 && (
-											<div class="w-full h-px bg-gray-3" />
-										)}
-									</>
-								);
-							}}
-						</Index>
-					</SectionCard>
-				</Section>
+															<Show
+																when={hotkeys[action()]}
+																fallback={
+																	<p
+																		class="flex items-center text-[11px] uppercase transition-colors hover:bg-gray-6 hover:border-gray-7
+                        py-3 px-2.5 h-5 bg-gray-4 border border-gray-5 rounded-lg text-gray-11 hover:text-gray-12"
+																	>
+																		None
+																	</p>
+																}
+															>
+																{(binding) => (
+																	<HotkeyText binding={binding()} />
+																)}
+															</Show>
+														</button>
+													</Match>
+												</Switch>
+											</SettingItem>
+										);
+									}}
+								</Index>
+							</SectionRows>
+						</Section>
+					)}
+				</For>
 			</SettingsPageContent>
 		</div>
 	);

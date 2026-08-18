@@ -100,8 +100,12 @@ manual_clamp = "deny"
 [profile.dev]
 debug = 1
 
+# Dependencies are optimized even in debug builds. Our own crates stay
+# unoptimized so rebuilds stay fast, but image encoding and pixel work run in
+# these crates, and unoptimized they made a screenshot take seconds.
 [profile.dev.package."*"]
 debug = 0
+opt-level = 2
 
 # Optimize for smaller binary size
 [profile.release]

@@ -95,7 +95,7 @@ async listSystemFonts() : Promise<string[]> {
 async closeRecordingsOverlayWindow() : Promise<void> {
     await TAURI_INVOKE("close_recordings_overlay_window");
 },
-async startFileDrag(path: string) : Promise<null> {
+async startFileDrag(path: string) : Promise<boolean> {
     return await TAURI_INVOKE("start_file_drag", { path });
 },
 async setFakeWindowBounds(name: string, bounds: LogicalBounds) : Promise<null> {
@@ -499,6 +499,7 @@ requestScreenCapturePrewarm: RequestScreenCapturePrewarm,
 requestScrollToSettingsSection: RequestScrollToSettingsSection,
 requestSetTargetMode: RequestSetTargetMode,
 requestStartRecording: RequestStartRecording,
+screenshotPinPreview: ScreenshotPinPreview,
 setCaptureAreaPending: SetCaptureAreaPending,
 targetUnderCursor: TargetUnderCursor,
 updateDownloadProgress: UpdateDownloadProgress,
@@ -529,6 +530,7 @@ requestScreenCapturePrewarm: "request-screen-capture-prewarm",
 requestScrollToSettingsSection: "request-scroll-to-settings-section",
 requestSetTargetMode: "request-set-target-mode",
 requestStartRecording: "request-start-recording",
+screenshotPinPreview: "screenshot-pin-preview",
 setCaptureAreaPending: "set-capture-area-pending",
 targetUnderCursor: "target-under-cursor",
 updateDownloadProgress: "update-download-progress",
@@ -929,7 +931,12 @@ export type FrameStyle =
 "macbook"
 export type FrameTheme = "dark" | "light"
 export type FramesRendered = { renderedCount: number; totalFrames: number; type: "FramesRendered" }
-export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme; lastVersion?: string | null; windowTransparency?: boolean; postStudioRecordingBehaviour?: PostStudioRecordingBehaviour; postScreenshotBehaviour?: PostScreenshotBehaviour; mainWindowRecordingStartBehaviour?: MainWindowRecordingStartBehaviour; custom_cursor_capture2?: boolean; recordingCountdown?: number | null; enableNativeCameraPreview: boolean; autoZoomOnClicks?: boolean; defaultZoomAmount?: number | null; 
+export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme; lastVersion?: string | null; windowTransparency?: boolean; postStudioRecordingBehaviour?: PostStudioRecordingBehaviour; postScreenshotBehaviour?: PostScreenshotBehaviour; 
+/**
+ * Seconds a pinned screenshot stays on screen before it removes itself.
+ * `None` means it stays until it is dismissed by hand.
+ */
+screenshotPinAutoHideSeconds?: number | null; mainWindowRecordingStartBehaviour?: MainWindowRecordingStartBehaviour; custom_cursor_capture2?: boolean; recordingCountdown?: number | null; enableNativeCameraPreview: boolean; autoZoomOnClicks?: boolean; defaultZoomAmount?: number | null; 
 /**
  * `None` until [`init`] seeds it from whether this machine has a notched
  * display. From then on it is the user's preference and nothing re-reads
@@ -962,7 +969,7 @@ export type GlideDirection = "none" | "left" | "right" | "up" | "down"
 export type HapticPattern = "alignment" | "levelChange" | "generic"
 export type HapticPerformanceTime = "default" | "now" | "drawCompleted"
 export type Hotkey = { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }
-export type HotkeyAction = "startStudioRecording" | "startInstantRecording" | "stopRecording" | "restartRecording" | "togglePauseRecording" | "cycleRecordingMode" | "openRecordingPicker" | "openRecordingPickerDisplay" | "openRecordingPickerWindow" | "openRecordingPickerArea" | "screenshotDisplay" | "screenshotWindow" | "screenshotArea" | "screenshotAreaOcr" | "other"
+export type HotkeyAction = "toggleRecording" | "startStudioRecording" | "startInstantRecording" | "stopRecording" | "restartRecording" | "togglePauseRecording" | "cycleRecordingMode" | "openRecordingPicker" | "openRecordingPickerDisplay" | "openRecordingPickerWindow" | "openRecordingPickerArea" | "screenshotDisplay" | "screenshotWindow" | "screenshotArea" | "screenshotAreaOcr" | "other"
 export type HotkeysConfiguration = { show: boolean }
 export type HotkeysStore = { hotkeys: { [key in HotkeyAction]: Hotkey } }
 export type ImportStage = "Probing" | "Converting" | "Finalizing" | "Complete" | "Failed"
@@ -1025,7 +1032,15 @@ export type PostScreenshotBehaviour = "openEditor" |
  * Default: a screenshot parks as a card in the overlay instead of taking
  * over the screen with the editor.
  */
-"showOverlay"
+"showOverlay" |
+/**
+ * The file is written and nothing opens; only the system notification shows up.
+ */
+"saveOnly" |
+/**
+ * The file is written and put on the clipboard, without anything opening.
+ */
+"clipboardOnly"
 export type PostStudioRecordingBehaviour = "openEditor" | "showOverlay"
 export type Preset = { name: string; config: ProjectConfiguration }
 export type PresetsStore = { presets: Preset[]; default: number | null }
@@ -1085,6 +1100,12 @@ export type SceneMode = "default" | "cameraOnly" | "hideCamera" | "splitScreen" 
  */
 "floating"
 export type SceneSegment = { start: number; end: number; mode?: SceneMode; splitLayout?: SplitLayout | null; transitionIn?: number; transitionOut?: number }
+/**
+ * Sent as soon as the capture exists in memory, long before the PNG is written, so the pin can
+ * appear right away. `preview` is a small JPEG data URL in card size; the overlay swaps it for
+ * the real file once [`crate::NewScreenshotAdded`] follows.
+ */
+export type ScreenshotPinPreview = { path: string; preview: string }
 export type ScreenCaptureTarget = { variant: "window"; id: WindowId } | { variant: "display"; id: DisplayId } | { variant: "area"; screen: DisplayId; bounds: LogicalBounds } | { variant: "cameraOnly" }
 export type ScreenMovementSpring = { stiffness: number; damping: number; mass: number }
 export type ScreenshotMetaWithMetadata = ((StudioRecordingMeta | InstantRecordingMeta) & { platform?: Platform | null; pretty_name: string; sharing?: SharingMeta | null; upload?: UploadMeta | null }) & { sort_time_millis: number }

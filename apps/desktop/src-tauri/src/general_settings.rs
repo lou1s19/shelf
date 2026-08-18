@@ -28,6 +28,10 @@ pub enum PostScreenshotBehaviour {
     /// over the screen with the editor.
     #[default]
     ShowOverlay,
+    /// The file is written and nothing opens; only the system notification shows up.
+    SaveOnly,
+    /// The file is written and put on the clipboard, without anything opening.
+    ClipboardOnly,
 }
 
 #[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy)]
@@ -186,6 +190,10 @@ pub struct GeneralSettingsStore {
     pub post_studio_recording_behaviour: PostStudioRecordingBehaviour,
     #[serde(default)]
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
+    /// Seconds a pinned screenshot stays on screen before it removes itself.
+    /// `None` means it stays until it is dismissed by hand.
+    #[serde(default = "default_screenshot_pin_auto_hide_seconds")]
+    pub screenshot_pin_auto_hide_seconds: Option<u32>,
     #[serde(default)]
     pub main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour,
     #[serde(
@@ -269,6 +277,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_screenshot_pin_auto_hide_seconds() -> Option<u32> {
+    Some(10)
+}
+
 fn default_instant_mode_max_resolution() -> u32 {
     cap_recording::DEFAULT_INSTANT_MODE_MAX_RESOLUTION
 }
@@ -313,6 +325,7 @@ impl Default for GeneralSettingsStore {
             window_transparency: false,
             post_studio_recording_behaviour: PostStudioRecordingBehaviour::OpenEditor,
             post_screenshot_behaviour: PostScreenshotBehaviour::ShowOverlay,
+            screenshot_pin_auto_hide_seconds: default_screenshot_pin_auto_hide_seconds(),
             main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour::Close,
             custom_cursor_capture: cap_recording::DEFAULT_CUSTOM_CURSOR_CAPTURE,
             recording_countdown: Some(3),
@@ -428,7 +441,6 @@ impl GeneralSettingsStore {
         store.set("general_settings", json!(settings));
         store.save().map_err(|e| e.to_string())?;
 
-
         #[cfg(target_os = "macos")]
         crate::permissions::sync_macos_dock_visibility(app);
 
@@ -498,6 +510,20 @@ pub fn init(app: &AppHandle) {
             .excluded_windows
             .retain(|w| w.window_title.as_deref() != Some("Cap Target Select"));
         raw_store.set(REMOVE_TARGET_SELECT_MIGRATION_KEY, json!(true));
+    }
+
+    // Pinning is the new default for screenshots. Configs written before that still carry the
+    // old "open the editor" choice, so move them over once and never touch the value again.
+    const SCREENSHOT_PIN_DEFAULT_MIGRATION_KEY: &str = "screenshot_pin_default_v1";
+    if let Ok(raw_store) = app.store("store")
+        && raw_store
+            .get(SCREENSHOT_PIN_DEFAULT_MIGRATION_KEY)
+            .is_none()
+    {
+        if store.post_screenshot_behaviour == PostScreenshotBehaviour::OpenEditor {
+            store.post_screenshot_behaviour = PostScreenshotBehaviour::ShowOverlay;
+        }
+        raw_store.set(SCREENSHOT_PIN_DEFAULT_MIGRATION_KEY, json!(true));
     }
 
     register_bundled_muxer_binary(app);
