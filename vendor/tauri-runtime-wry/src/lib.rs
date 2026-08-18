@@ -223,18 +223,26 @@ macro_rules! webview_getter {
 
 /// Cap fork: the window store is a `RefCell` behind an `unsafe impl Sync`. In
 /// practice its borrow flag can end up stuck in the "mutably borrowed" state
-/// even though nothing in this crate holds a mutable borrow, after which every
-/// `borrow()` panics and kills the app (tauri-apps/tauri#14801,
-/// tauri-apps/tauri#15003). Cap hits this reliably when the recordings overlay
-/// window opens.
+/// even though nothing holds a mutable borrow, after which every `borrow()`
+/// panics on the main thread and kills the app (tauri-apps/tauri#14801,
+/// tauri-apps/tauri#15003). Cap hits this when the recordings overlay opens.
 ///
-/// Reading through this helper keeps the app alive: if the flag is stuck we log
-/// it once and fall back to reading the map directly. That is safe here because
-/// every mutable borrow in this crate lives inside a single statement on the
-/// main thread, so there is never a real writer to race with.
+/// Every mutable borrow in this crate goes through [`win_borrow_mut`], which
+/// counts live writers. A read that cannot take the borrow therefore knows
+/// whether a real writer exists: if none does, the flag is stuck and the map is
+/// read directly; if one does, the read is skipped instead of racing with it.
+static WINDOW_STORE_WRITERS: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+
+fn empty_window_store() -> &'static WindowsStore {
+  static EMPTY: std::sync::OnceLock<WindowsStore> = std::sync::OnceLock::new();
+  EMPTY.get_or_init(|| WindowsStore(RefCell::new(BTreeMap::new())))
+}
+
 pub(crate) enum WindowsRead<'a> {
   Borrowed(std::cell::Ref<'a, BTreeMap<WindowId, WindowWrapper>>),
   Recovered(&'a BTreeMap<WindowId, WindowWrapper>),
+  Skipped(std::cell::Ref<'static, BTreeMap<WindowId, WindowWrapper>>),
 }
 
 impl<'a> std::ops::Deref for WindowsRead<'a> {
@@ -244,6 +252,7 @@ impl<'a> std::ops::Deref for WindowsRead<'a> {
     match self {
       Self::Borrowed(windows) => windows,
       Self::Recovered(windows) => windows,
+      Self::Skipped(windows) => windows,
     }
   }
 }
@@ -255,16 +264,64 @@ pub(crate) fn win_borrow<'a>(
   match cell.try_borrow() {
     Ok(windows) => WindowsRead::Borrowed(windows),
     Err(_) => {
+      if WINDOW_STORE_WRITERS.load(std::sync::atomic::Ordering::Acquire) > 0 {
+        // A real writer is live, so the map may be half-updated right now.
+        log::error!("window store is being written while reading it ({ctx}); skipping");
+        return WindowsRead::Skipped(empty_window_store().0.borrow());
+      }
+
       static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
       if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
         log::error!(
-          "window store borrow flag is stuck (first seen at {ctx}); reading it directly from now on"
+          "window store borrow flag is stuck with no writer (first seen at {ctx}); reading the map directly from now on"
         );
       }
-      // SAFETY: no mutable borrow is actually outstanding, see the note above.
+      // SAFETY: no mutable borrow is outstanding, see the note above.
       WindowsRead::Recovered(unsafe { &*cell.as_ptr() })
     }
   }
+}
+
+struct WindowStoreWriterCount;
+
+impl WindowStoreWriterCount {
+  fn new() -> Self {
+    WINDOW_STORE_WRITERS.fetch_add(1, std::sync::atomic::Ordering::Release);
+    Self
+  }
+}
+
+impl Drop for WindowStoreWriterCount {
+  fn drop(&mut self) {
+    WINDOW_STORE_WRITERS.fetch_sub(1, std::sync::atomic::Ordering::Release);
+  }
+}
+
+pub(crate) struct WindowsWrite<'a> {
+  _count: WindowStoreWriterCount,
+  inner: std::cell::RefMut<'a, BTreeMap<WindowId, WindowWrapper>>,
+}
+
+impl<'a> std::ops::Deref for WindowsWrite<'a> {
+  type Target = BTreeMap<WindowId, WindowWrapper>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.inner
+  }
+}
+
+impl<'a> std::ops::DerefMut for WindowsWrite<'a> {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.inner
+  }
+}
+
+pub(crate) fn win_borrow_mut<'a>(
+  cell: &'a RefCell<BTreeMap<WindowId, WindowWrapper>>,
+) -> WindowsWrite<'a> {
+  let _count = WindowStoreWriterCount::new();
+  let inner = cell.borrow_mut();
+  WindowsWrite { _count, inner }
 }
 
 pub(crate) fn send_user_message<T: UserEvent>(
@@ -2909,13 +2966,7 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
       context: self.context.clone(),
     };
 
-    self
-      .context
-      .main_thread
-      .windows
-      .0
-      .borrow_mut()
-      .insert(window_id, window);
+    crate::win_borrow_mut(&self.context.main_thread.windows.0).insert(window_id, window);
 
     let detached_webview = webview_id.map(|id| {
       let webview = DetachedWebview {
@@ -2966,12 +3017,7 @@ impl<T: UserEvent> Runtime<T> for Wry<T> {
       )?;
 
       #[allow(unknown_lints, clippy::manual_inspect)]
-      self
-        .context
-        .main_thread
-        .windows
-        .0
-        .borrow_mut()
+      crate::win_borrow_mut(&self.context.main_thread.windows.0)
         .get_mut(&window_id)
         .map(|w| {
           w.webviews.push(webview);
@@ -3555,7 +3601,7 @@ fn handle_user_message<T: UserEvent>(
         target_os = "openbsd"
       ))]
       if let WebviewMessage::Reparent(new_parent_window_id, tx) = webview_message {
-        let webview_handle = windows.0.borrow_mut().get_mut(&window_id).and_then(|w| {
+        let webview_handle = crate::win_borrow_mut(&windows.0).get_mut(&window_id).and_then(|w| {
           w.webviews
             .iter()
             .position(|w| w.id == webview_id)
@@ -3563,10 +3609,9 @@ fn handle_user_message<T: UserEvent>(
         });
 
         if let Some(webview) = webview_handle {
-          if let Some((Some(new_parent_window), new_parent_window_webviews)) = windows
-            .0
-            .borrow_mut()
-            .get_mut(&new_parent_window_id)
+          if let Some((Some(new_parent_window), new_parent_window_webviews)) =
+            crate::win_borrow_mut(&windows.0)
+              .get_mut(&new_parent_window_id)
             .map(|w| (w.inner.clone(), &mut w.webviews))
           {
             #[cfg(target_os = "macos")]
@@ -3668,7 +3713,7 @@ fn handle_user_message<T: UserEvent>(
           }
           WebviewMessage::Close => {
             #[allow(unknown_lints, clippy::manual_inspect)]
-            windows.0.borrow_mut().get_mut(&window_id).map(|window| {
+            crate::win_borrow_mut(&windows.0).get_mut(&window_id).map(|window| {
               if let Some(i) = window.webviews.iter().position(|w| w.id == webview.id) {
                 window.webviews.remove(i);
               }
@@ -3916,7 +3961,7 @@ fn handle_user_message<T: UserEvent>(
         match handler(&window, CreateWebviewOptions { focused_webview }) {
           Ok(webview) => {
             #[allow(unknown_lints, clippy::manual_inspect)]
-            windows.0.borrow_mut().get_mut(&window_id).map(|w| {
+            crate::win_borrow_mut(&windows.0).get_mut(&window_id).map(|w| {
               w.webviews.push(webview);
               w.has_children.store(true, Ordering::Relaxed);
               w
@@ -3969,7 +4014,7 @@ fn handle_user_message<T: UserEvent>(
           None
         };
 
-        windows.0.borrow_mut().insert(
+        crate::win_borrow_mut(&windows.0).insert(
           window_id,
           WindowWrapper {
             label,
@@ -4047,7 +4092,7 @@ fn handle_event_loop<T: UserEvent>(
     #[cfg(windows)]
     Event::RedrawRequested(id) => {
       if let Some(window_id) = window_id_map.get(&id) {
-        let mut windows_ref = windows.0.borrow_mut();
+        let mut windows_ref = crate::win_borrow_mut(&windows.0);
         if let Some(window) = windows_ref.get_mut(&window_id) {
           if window.is_window_transparent {
             let background_color = window.background_color;
@@ -4166,7 +4211,7 @@ fn handle_event_loop<T: UserEvent>(
             on_close_requested(callback, window_id, windows);
           }
           TaoWindowEvent::Destroyed => {
-            let removed = windows.0.borrow_mut().remove(&window_id).is_some();
+            let removed = crate::win_borrow_mut(&windows.0).remove(&window_id).is_some();
             if removed {
               let is_empty = crate::win_borrow(&windows.0, "window destroyed").is_empty();
               if is_empty {
@@ -4286,7 +4331,7 @@ fn on_close_requested<'a, T: UserEvent>(
 }
 
 fn on_window_close(window_id: WindowId, windows: Arc<WindowsStore>) {
-  if let Some(window_wrapper) = windows.0.borrow_mut().get_mut(&window_id) {
+  if let Some(window_wrapper) = crate::win_borrow_mut(&windows.0).get_mut(&window_id) {
     window_wrapper.inner = None;
     #[cfg(windows)]
     window_wrapper.surface.take();
