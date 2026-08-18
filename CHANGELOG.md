@@ -4,12 +4,30 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 
 ## Offen
 
-- App-Name, Bundle-ID, Icon und Update-Weg sind noch die von Cap. Solange das so
-  ist, ist es ein Fork und keine eigene App.
+- **Menüleisten-Icons** sind noch die von Cap (`icons/tray-*.png`, fünf Zustände).
+- **Update-Weg fehlt.** Caps Updater-Endpunkt ist abgeschaltet, weil er Shelf
+  sonst durch Cap-Builds ersetzt hätte. Eigener Release-Feed steht aus.
+- **Texte in der Oberfläche** sagen an vielen Stellen noch „Cap" (rund 120
+  Stellen im Frontend). Fenstertitel und App-Identität sind schon umgestellt.
+- Das Deep-Link-Schema heißt weiter `cap-desktop`. Umbenennen würde die Anmeldung
+  über cap.so zerlegen.
 - `.env.example` fehlt. Für den Desktop-Build reicht bisher eine kleine `.env` im
   Repo-Root, deren Variablen sind noch nicht dokumentiert.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
+
+## 2026-08-18 (Umbenennung)
+
+- Aus dem Fork wird **Shelf**. Produktname, Bundle-ID (`de.shelf.desktop`, Dev:
+  `de.shelf.desktop.dev`), Fenstertitel, die Standard-Ausschlussliste beim
+  Aufnehmen und der Log-Ordner tragen den neuen Namen.
+- Neues App-Icon: ein Regal mit zwei Karten darauf, reine Geometrie in Schiefer
+  und Blau, transparent, bei 32 Pixeln noch lesbar. Erzeugt aus
+  `scripts` heraus als exakte Form, nicht als KI-Bild (der KI-Versuch kam mit
+  grünem Hintergrund zurück).
+- **Achtung:** Die neue Bundle-ID bedeutet, dass macOS die Rechte für
+  Bildschirmaufnahme und Bedienungshilfen neu abfragt und dass alte Aufnahmen
+  und Einstellungen unter `so.cap.desktop` liegen bleiben.
 
 ## 2026-08-18
 
