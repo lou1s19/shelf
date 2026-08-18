@@ -12,8 +12,14 @@ Pull-Request-Workflow mehr zurück nach oben. Änderungen landen hier.
   weitergegeben wird, muss der Quellcode mitgeliefert werden und die Lizenz
   bleibt AGPLv3. Das gilt auch für eine umbenannte eigene App.
 - **Verlauf:** `CHANGELOG.md` im Root, neuester Eintrag oben.
-- **Noch offen für eine echte eigene App:** Name, Bundle-ID, Icon, Signierung,
-  Update-Weg. Solange die noch von Cap sind, ist es ein Fork.
+- **Lokal, ohne Cloud:** Es gibt keine Konten, kein Hochladen, keine Teilen-Links,
+  kein Cap Pro, keine Telemetrie und keinen Updater. Wer so etwas wieder einbaut,
+  baut ein neues Produkt, nicht dieses.
+- **Im Repo liegt nur noch die Desktop-App.** Caps Website, Mobile-App,
+  Chrome-Erweiterung, Discord-Bot, Media-Server und Cloud-Infrastruktur sind
+  gelöscht. `git log` hat sie noch, falls du etwas nachschlagen willst.
+- **Noch offen:** eigener Update-Weg, Deep-Link-Schema heißt weiter `cap-desktop`,
+  Sidecar-Binaries heißen intern noch `cap-*`, Projektendung ist weiter `.cap`.
 
 ## Gepatchte Abhängigkeiten
 

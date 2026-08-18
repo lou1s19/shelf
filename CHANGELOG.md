@@ -21,6 +21,13 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 
 Shelf ist ab jetzt eigenständig und lokal. Nichts geht mehr an Cap.
 
+- **Kommandozeile:** Konto-, Agent-, Zugangsdaten-, Analytics- und
+  Organisations-Befehle sind gelöscht, ebenso der Upload-Auslöser. Übrig sind
+  Aufnehmen, Screenshots, Export, Ziele und lokale Automatisierungen. Hilfetexte
+  und Beispiele sagen `shelf`.
+- **Logo:** Die Wortmarke im Hauptfenster ist das Shelf-Zeichen mit Schriftzug,
+  hell und dunkel.
+
 - **Nichts verlässt mehr den Rechner:** Sentry-Absturzmeldungen, OpenPanel-
   Nutzungsdaten und OpenTelemetry-Traces sind entfernt, samt Abhängigkeiten und
   `t.cap.so` in der Fenster-Sicherheitsregel.
