@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::{OutputFormat, write_json};
 
 /// Version of the machine-readable JSON contracts the CLI emits. Bump on breaking changes so an
-/// agent can detect drift via `cap version`/`cap doctor`.
+/// agent can detect drift via `shelf version`/`shelf doctor`.
 pub const SCHEMA_VERSION: u32 = 2;
 
 #[cfg(windows)]
@@ -496,7 +496,7 @@ pub struct Doctor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub install: Option<cap_cli_install::CliInstallStatus>,
     pub checks: Vec<Check>,
-    /// Automation rules shared with Cap Desktop that the CLI honors after capture/upload.
+    /// Automation rules shared with the desktop app that the CLI honors after capture.
     pub automations: AutomationsInfo,
     /// Overall health: false when a required check (e.g. ffmpeg) failed.
     pub ok: bool,

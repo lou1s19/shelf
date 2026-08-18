@@ -9,10 +9,10 @@ use crate::{OutputFormat, resolve_format, write_json};
 
 #[derive(Args)]
 pub struct Screenshot {
-    /// ID of the screen to capture (see `cap targets screens`)
+    /// ID of the screen to capture (see `shelf targets screens`)
     #[arg(long, group = "target")]
     screen: Option<DisplayId>,
-    /// ID of the window to capture (see `cap targets windows`)
+    /// ID of the window to capture (see `shelf targets windows`)
     #[arg(long, group = "target")]
     window: Option<WindowId>,
     /// Output image path (format inferred from extension, e.g. .png)
@@ -51,7 +51,7 @@ impl Screenshot {
             (_, Some(id)) => resolve_window(&id)?,
             _ => {
                 return Err(
-                    "No target specified; pass --screen <id> or --window <id> (see `cap targets`)"
+                    "No target specified; pass --screen <id> or --window <id> (see `shelf targets`)"
                         .to_string(),
                 );
             }
@@ -103,6 +103,6 @@ fn resolve_window(id: &WindowId) -> Result<ScreenCaptureTarget, String> {
         .find(|s| &s.0.id == id)
         .map(|(s, _)| ScreenCaptureTarget::Window { id: s.id })
         .ok_or_else(|| {
-            format!("Window with id '{id}' not found. Run `cap targets windows` to list window ids")
+            format!("Window with id '{id}' not found. Run `shelf targets windows` to list window ids")
         })
 }

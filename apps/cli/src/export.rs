@@ -48,7 +48,7 @@ The NDJSON uses PascalCase type tags and snake_case fields ({\"type\":\"Progress
 \"total_frames\":N} then {\"type\":\"Completed\",\"path\":\"...\"}); on failure a final
 {\"type\":\"Error\",\"error\":\"...\"} is emitted.")]
 pub struct Export {
-    /// Path to a '.cap' project directory (as produced by `cap record`)
+    /// Path to a '.cap' project directory (as produced by `shelf record`)
     project_path: PathBuf,
     /// Output file (positional alternative to --output)
     output_path: Option<PathBuf>,
@@ -383,8 +383,8 @@ impl Export {
         .map_err(|v| format!("Exporter error: {v}"))?;
 
         // Defense in depth: an export that renders no frames writes an empty (~few hundred byte) file
-        // but otherwise "succeeds". An agent must never silently get/upload that, so fail loudly and
-        // remove the empty artifact instead of reporting completion.
+        // but otherwise "succeeds". An agent must never silently treat that as a real export, so fail
+        // loudly and remove the empty artifact instead of reporting completion.
         if total_frames > 0 && rendered.load(Ordering::Relaxed) == 0 {
             let _ = std::fs::remove_file(&output_path);
             return Err(format!(
@@ -410,7 +410,7 @@ impl Export {
 }
 
 /// Remux a recording left as fragments (status `NeedsRemux`) into a progressive `display.mp4` before
-/// export, reusing the shared `RecoveryManager`. A graceful `cap record` stop already remuxes in
+/// export, reusing the shared `RecoveryManager`. A graceful `shelf record` stop already remuxes in
 /// `finalize`, so this only fires for recordings interrupted before that (e.g. a killed worker);
 /// without it the exporter fails trying to open a fragment directory as a video. No-op for recordings
 /// that are already progressive.
@@ -566,7 +566,7 @@ async fn export_instant_project(
 }
 
 /// Render a project to its default output path with default settings (mp4, 1080p60, Maximum). Used by
-/// `cap upload --export` to glue record -> export -> upload into one step.
+/// the self-test to render a project's default export in one step.
 pub async fn export_project_default(project_path: PathBuf) -> Result<PathBuf, String> {
     let settings = settings_from_flags(&ExportFlags::default())?;
     ensure_remuxed(project_path.clone()).await?;
@@ -598,8 +598,7 @@ pub async fn export_project_default(project_path: PathBuf) -> Result<PathBuf, St
     .map_err(|v| format!("Exporter error: {v}"))?;
 
     // Same 0-frame guard as Export::run_inner: a recording with missing media renders an empty,
-    // unplayable file that otherwise "succeeds", and `cap upload --export` would sign + upload it and
-    // hand back a valid-looking link. Fail loudly and remove the artifact instead.
+    // unplayable file that otherwise "succeeds". Fail loudly and remove the artifact instead.
     if total_frames > 0 && rendered.load(Ordering::Relaxed) == 0 {
         let _ = std::fs::remove_file(&output_path);
         return Err(format!(

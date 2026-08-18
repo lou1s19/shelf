@@ -63,7 +63,7 @@ pub struct CameraTarget {
 #[serde(rename_all = "camelCase")]
 pub struct MicTarget {
     pub index: usize,
-    /// Device name; this is the value `cap record --mic <name>` expects.
+    /// Device name; this is the value `shelf record --mic <name>` expects.
     pub name: String,
 }
 

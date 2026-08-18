@@ -1,4 +1,4 @@
-//! `cap selftest playback` — verifies A/V sync of the editor's playback
+//! `shelf selftest playback` — verifies A/V sync of the editor's playback
 //! path: what the renderer presents vs what the audio output plays.
 //!
 //! The harness opens a flash+beep recording with the real editor machinery

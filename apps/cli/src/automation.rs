@@ -1,5 +1,5 @@
-//! Runs Cap automation rules from the CLI, sharing the exact rule model and engine the desktop app
-//! uses (`cap_automation`). Rules are authored in Cap Desktop and persisted to its tauri-plugin-store
+//! Runs Shelf automation rules from the CLI, sharing the exact rule model and engine the desktop app
+//! uses (`cap_automation`). Rules are authored in Shelf and persisted to its tauri-plugin-store
 //! file; the CLI reads that file directly (same approach as `credentials.rs`) so a rule like
 //! "on screenshot, save to ~/Shots" is honored whether the capture came from the app or `cap`.
 
@@ -31,7 +31,7 @@ pub fn load_store() -> Option<AutomationsStore> {
     cap_automation::load_store_from_json(&load_desktop_store_value()?)
 }
 
-/// `(total_rules, enabled_rules)` configured in Cap Desktop, for `cap doctor`.
+/// `(total_rules, enabled_rules)` configured in Shelf, for `shelf doctor`.
 pub fn rule_counts() -> (usize, usize) {
     let store = load_store().unwrap_or_default();
     let enabled = store.rules.iter().filter(|r| r.enabled).count();
@@ -54,7 +54,6 @@ impl AutomationHost for CliAutomationHost {
         &[
             Capability::SaveToLocation,
             Capability::Export,
-            Capability::Upload,
             Capability::RevealInFileManager,
             Capability::OpenFile,
             Capability::RunCommand,
@@ -172,45 +171,6 @@ impl AutomationHost for CliAutomationHost {
         Ok(())
     }
 
-    async fn upload(
-        &self,
-        ctx: &TriggerContext,
-        _organization_id: Option<&str>,
-        _copy_link: bool,
-        open_in_browser: bool,
-    ) -> Result<(), String> {
-        if let Some(link) = ctx.share_link.as_deref() {
-            tracing::info!(link = %link, "automation: recording already uploaded, reusing link");
-            if open_in_browser {
-                open_path_or_url(link)?;
-            }
-            return Ok(());
-        }
-
-        let project_path = ctx
-            .project_path
-            .as_ref()
-            .ok_or("CLI upload supports recordings only (no project path available)")?;
-
-        let meta = cap_project::RecordingMeta::load_for_project(project_path)
-            .map_err(|e| format!("Failed to load project: {e}"))?;
-        let output = meta.output_path();
-        if !output.exists() {
-            return Err(format!(
-                "No exported video at {}; add an Export action before Upload",
-                output.display()
-            ));
-        }
-
-        let link =
-            crate::upload::upload_video_path(&output, Some(meta.pretty_name.clone())).await?;
-        tracing::info!(link = %link, "automation: upload complete");
-        if open_in_browser {
-            open_path_or_url(&link)?;
-        }
-        Ok(())
-    }
-
     async fn reveal_in_file_manager(&self, ctx: &TriggerContext) -> Result<(), String> {
         let path = ctx
             .image_path
@@ -304,7 +264,6 @@ impl AutomationHost for CliAutomationHost {
                 "project_path": ctx.project_path,
                 "image_path": ctx.image_path,
                 "output_path": ctx.output_path,
-                "share_link": ctx.share_link,
             }))
             .map_err(|e| format!("Failed to serialize webhook body: {e}"))?
         };
@@ -346,12 +305,12 @@ impl AutomationHost for CliAutomationHost {
             .as_ref()
             .ok_or("No project path for preset")?;
 
-        let store = load_desktop_store_value().ok_or("Cap Desktop store not found")?;
+        let store = load_desktop_store_value().ok_or("Shelf store not found")?;
         let presets = store
             .get("presets")
             .and_then(|p| p.get("presets"))
             .and_then(Value::as_array)
-            .ok_or("No presets found in Cap Desktop store")?;
+            .ok_or("No presets found in Shelf store")?;
 
         let preset = presets
             .iter()
@@ -406,9 +365,6 @@ fn context_env(ctx: &TriggerContext) -> Vec<(&'static str, String)> {
     if let Some(p) = &ctx.output_path {
         env.push(("CAP_OUTPUT_PATH", p.to_string_lossy().to_string()));
     }
-    if let Some(l) = &ctx.share_link {
-        env.push(("CAP_SHARE_LINK", l.clone()));
-    }
     env
 }
 
@@ -434,9 +390,6 @@ fn apply_body_template(template: &str, ctx: &TriggerContext) -> String {
     }
     if let Some(p) = &ctx.output_path {
         result = result.replace("{output_path}", &p.to_string_lossy());
-    }
-    if let Some(l) = &ctx.share_link {
-        result = result.replace("{share_link}", l);
     }
     result
 }
@@ -510,25 +463,13 @@ pub async fn run_recording_finished(project_path: &Path, mode: AutomationRecordi
     if let Ok(meta) = cap_project::RecordingMeta::load_for_project(project_path)
         && let Some(sharing) = meta.sharing
     {
-        ctx = ctx.with_share_link(sharing.link).with_share_id(sharing.id);
+        ctx = ctx.with_share_id(sharing.id);
     }
 
     run_trigger(trigger, ctx).await;
 }
 
-pub async fn run_upload_completed(project_path: &Path, link: &str, id: &str) {
-    if load_store().is_none() {
-        return;
-    }
-
-    let ctx = TriggerContext::new()
-        .with_project_path(project_path.to_path_buf())
-        .with_share_link(link.to_string())
-        .with_share_id(id.to_string());
-    run_trigger(Trigger::UploadCompleted, ctx).await;
-}
-
-/// `cap automations list` — print the automation rules shared with Cap Desktop.
+/// `shelf automations list` — print the automation rules shared with Shelf.
 pub fn list(format: crate::OutputFormat) -> Result<(), String> {
     let store = load_store().unwrap_or_default();
 
@@ -537,7 +478,7 @@ pub fn list(format: crate::OutputFormat) -> Result<(), String> {
         crate::OutputFormat::Text => {
             if store.rules.is_empty() {
                 println!(
-                    "No automations configured. Add them in Cap Desktop under Settings > Automations."
+                    "No automations configured. Add them in Shelf under Settings > Automations."
                 );
                 return Ok(());
             }

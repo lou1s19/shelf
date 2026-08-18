@@ -1,4 +1,4 @@
-//! `cap selftest` — diagnostics that verify Cap works correctly on this
+//! `shelf selftest` — diagnostics that verify Cap works correctly on this
 //! machine, starting with an end-to-end A/V sync test: record a known
 //! flash+beep pattern through the real capture pipeline, then measure the
 //! flash-to-beep offset in both the raw recording and an export of it.

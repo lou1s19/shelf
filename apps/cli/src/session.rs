@@ -1,9 +1,9 @@
-//! On-disk bookkeeping for detached recordings started with `cap record start --detach`.
+//! On-disk bookkeeping for detached recordings started with `shelf record start --detach`.
 //!
 //! A detached recording runs in a re-exec'd worker process. The worker writes a `<id>.json` session
-//! file describing the live recording; `cap record stop` requests a stop by creating a `<id>.stop`
+//! file describing the live recording; `shelf record stop` requests a stop by creating a `<id>.stop`
 //! file (which the worker polls for, so it works on Windows where there is no SIGTERM) and waits for
-//! the worker to flip the session status. `cap record status` lists these files.
+//! the worker to flip the session status. `shelf record status` lists these files.
 
 use std::{
     path::{Path, PathBuf},

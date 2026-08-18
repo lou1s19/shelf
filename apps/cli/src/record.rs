@@ -41,10 +41,10 @@ pub struct RecordParams {
     /// Recording mode to use
     #[arg(long, value_enum, default_value_t = RecordMode::Studio)]
     mode: RecordMode,
-    /// Capture from the camera with this device id (see `cap targets cameras`)
+    /// Capture from the camera with this device id (see `shelf targets cameras`)
     #[arg(long)]
     camera: Option<String>,
-    /// Capture from the microphone with this device name (see `cap targets mics`)
+    /// Capture from the microphone with this device name (see `shelf targets mics`)
     #[arg(long)]
     mic: Option<String>,
     /// Whether to capture system audio
@@ -133,7 +133,7 @@ impl std::fmt::Display for RecordMode {
 pub struct RecordStart {
     #[command(flatten)]
     params: RecordParams,
-    /// Record in the background and return immediately; stop later with `cap record stop`
+    /// Record in the background and return immediately; stop later with `shelf record stop`
     #[arg(long)]
     detach: bool,
     /// Output format for status events
@@ -141,8 +141,8 @@ pub struct RecordStart {
     format: OutputFormat,
 }
 
-/// Hidden worker entrypoint. `cap record start --detach` re-execs the binary as
-/// `cap record __session-run` so the recording outlives the parent process.
+/// Hidden worker entrypoint. `shelf record start --detach` re-execs the binary as
+/// `shelf record __session-run` so the recording outlives the parent process.
 #[derive(Args)]
 pub struct SessionRunArgs {
     #[command(flatten)]
@@ -153,7 +153,7 @@ pub struct SessionRunArgs {
 
 #[derive(Args)]
 pub struct RecordStopArgs {
-    /// recordingId returned by `cap record start --detach`
+    /// recordingId returned by `shelf record start --detach`
     #[arg(long)]
     id: Option<String>,
     /// The '.cap' project path of the recording to stop (alternative to --id)
@@ -200,7 +200,7 @@ async fn foreground_inner(params: RecordParams, format: OutputFormat) -> Result<
     if params.duration.is_none() && !interactive {
         return Err(
             "Recording without --duration requires an interactive terminal; pass --duration <seconds>, \
-             or use `cap record start --detach` and stop it later with `cap record stop`"
+             or use `shelf record start --detach` and stop it later with `shelf record stop`"
                 .to_string(),
         );
     }
@@ -605,7 +605,7 @@ fn resolve_session(id: Option<&str>, path: Option<&Path>) -> Result<Session, Str
         .collect();
     match active.len() {
         0 => Err(
-            "No active recording sessions. Start one with `cap record start --detach`".to_string(),
+            "No active recording sessions. Start one with `shelf record start --detach`".to_string(),
         ),
         1 => Ok(active.remove(0)),
         _ => {
@@ -752,7 +752,7 @@ async fn start_recording(
                     .collect();
                 format!(
                     "Camera with id '{device_id}' not found. Available device ids: {available:?} \
-                     (see `cap targets cameras`)"
+                     (see `shelf targets cameras`)"
                 )
             })?;
         let id = camera::DeviceOrModelID::from_info(&info);
@@ -779,7 +779,7 @@ async fn start_recording(
         if !available.contains_key(mic_name) {
             let names: Vec<&str> = available.keys().map(String::as_str).collect();
             return Err(format!(
-                "Microphone '{mic_name}' not found. Available: {names:?} (see `cap targets mics`)"
+                "Microphone '{mic_name}' not found. Available: {names:?} (see `shelf targets mics`)"
             ));
         }
 
@@ -1073,7 +1073,7 @@ fn resolve_target(params: &RecordParams) -> Result<ScreenCaptureTarget, String> 
                     .collect();
                 format!(
                     "Screen with id '{id}' not found. Available screen ids: {available:?} \
-                     (see `cap targets screens`)"
+                     (see `shelf targets screens`)"
                 )
             }),
         (_, Some(id)) => cap_recording::screen_capture::list_windows()
@@ -1082,11 +1082,11 @@ fn resolve_target(params: &RecordParams) -> Result<ScreenCaptureTarget, String> 
             .map(|(s, _)| ScreenCaptureTarget::Window { id: s.id })
             .ok_or_else(|| {
                 format!(
-                    "Window with id '{id}' not found. Run `cap targets windows` to list window ids"
+                    "Window with id '{id}' not found. Run `shelf targets windows` to list window ids"
                 )
             }),
         _ => Err(
-            "No target specified; pass --screen <id> or --window <id> (see `cap targets`)"
+            "No target specified; pass --screen <id> or --window <id> (see `shelf targets`)"
                 .to_string(),
         ),
     }
