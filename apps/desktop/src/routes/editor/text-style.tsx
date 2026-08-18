@@ -3,8 +3,6 @@ import {
 	getHexColorDigitCount,
 	normalizeOpaqueHexColor,
 } from "~/utils/hex-color";
-import type { OrganizationBrandColorSwatch } from "~/utils/organization-branding";
-import { BrandColorsDropdown } from "./BrandColorsDropdown";
 import { getColorPreviewBorderColor } from "./color-utils";
 import { TextInput } from "./TextInput";
 import type { TextAnimation } from "./text";
@@ -83,7 +81,6 @@ export function getTextWeightLabel(weight: number | null | undefined) {
 export function HexColorInput(props: {
 	value: string;
 	onChange: (value: string) => void;
-	brandColorSwatches?: OrganizationBrandColorSwatch[];
 }) {
 	const [text, setText] = createWritableMemo(() => props.value);
 	let prevColor = props.value;
@@ -97,12 +94,6 @@ export function HexColorInput(props: {
 			return true;
 		}
 		return false;
-	};
-
-	const selectBrandColor = (color: string) => {
-		setText(color);
-		prevColor = color;
-		props.onChange(color);
 	};
 
 	return (
@@ -161,10 +152,6 @@ export function HexColorInput(props: {
 					}}
 				/>
 			</div>
-			<BrandColorsDropdown
-				swatches={props.brandColorSwatches ?? []}
-				onSelect={selectBrandColor}
-			/>
 		</div>
 	);
 }

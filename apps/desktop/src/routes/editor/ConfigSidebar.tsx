@@ -53,11 +53,6 @@ import { generalSettingsStore } from "~/store";
 import { listSystemFonts } from "~/utils/fonts";
 import { normalizeOpaqueHexColor } from "~/utils/hex-color";
 import {
-	createSelectedOrganization,
-	getOrganizationBrandColorSwatches,
-	type OrganizationBrandColorSwatch,
-} from "~/utils/organization-branding";
-import {
 	type BackgroundBlurMode,
 	type BackgroundSource,
 	type CameraShape,
@@ -111,7 +106,6 @@ import {
 	MAX_VOLUME_DB,
 	MIN_VOLUME_DB,
 } from "./audio";
-import { BrandColorsDropdown } from "./BrandColorsDropdown";
 import { ColorCorrectionSection } from "./ColorCorrectionSection";
 import { syncCaptionWordsWithText } from "./captions";
 import { type ClipTransition, clipSourceTimeAt } from "./clip-transitions";
@@ -512,13 +506,6 @@ export function ConfigSidebar() {
 		editorState,
 		meta,
 	} = useEditorContext();
-	const organizationSelection = createSelectedOrganization();
-	const brandColorSwatches = createMemo(() =>
-		getOrganizationBrandColorSwatches(
-			organizationSelection.selectedOrganization(),
-		),
-	);
-
 	const cursorIdleDelay = () =>
 		((project.cursor as { hideWhenIdleDelay?: number }).hideWhenIdleDelay ??
 			2) as number;
@@ -690,10 +677,7 @@ export function ConfigSidebar() {
 						editorState.timeline.camera3dSetup !== null,
 				}}
 			>
-				<BackgroundConfig
-					scrollRef={scrollRef}
-					brandColorSwatches={brandColorSwatches()}
-				/>
+				<BackgroundConfig scrollRef={scrollRef} />
 				<CameraConfig scrollRef={scrollRef} />
 				<KTabs.Content
 					value="audio"
@@ -1064,14 +1048,14 @@ export function ConfigSidebar() {
 					class="flex flex-col flex-1 gap-6 p-4 min-h-0"
 				>
 					<Suspense>
-						<CaptionsTab brandColorSwatches={brandColorSwatches()} />
+						<CaptionsTab />
 					</Suspense>
 				</KTabs.Content>
 				<KTabs.Content
 					value={TAB_IDS.keyboard}
 					class="flex flex-col flex-1 gap-6 p-4 min-h-0"
 				>
-					<KeyboardTab brandColorSwatches={brandColorSwatches()} />
+					<KeyboardTab />
 				</KTabs.Content>
 			</div>
 			<div
@@ -1356,7 +1340,6 @@ export function ConfigSidebar() {
 													<TextSegmentConfig
 														segment={item.segment}
 														segmentIndex={item.index}
-														brandColorSwatches={brandColorSwatches()}
 													/>
 												</div>
 											)}
@@ -1762,10 +1745,7 @@ export function ConfigSidebar() {
 	);
 }
 
-function BackgroundConfig(props: {
-	scrollRef: HTMLDivElement;
-	brandColorSwatches: OrganizationBrandColorSwatch[];
-}) {
+function BackgroundConfig(props: { scrollRef: HTMLDivElement }) {
 	const { project, setProject, editorInstance, projectHistory } =
 		useEditorContext();
 	const notchXMax = () => {
@@ -2151,36 +2131,6 @@ function BackgroundConfig(props: {
 		},
 	};
 
-	const setColorBackgroundSource = (color: string) => {
-		const rgbValue = hexToRgb(color);
-		if (!rgbValue) return;
-
-		const [r, g, b, a] = rgbValue;
-		backgrounds.color = {
-			type: "color",
-			value: [r, g, b],
-			alpha: a,
-		};
-
-		setProject("background", "source", backgrounds.color);
-	};
-
-	const setBackgroundBorderColor = (color: string) => {
-		const rgbValue = hexToRgb(color);
-		if (!rgbValue) return;
-		const [r, g, b] = rgbValue;
-
-		setProject("background", "border", {
-			...(project.background.border ?? {
-				enabled: true,
-				width: 5.0,
-				color: [0, 0, 0],
-				opacity: 50.0,
-			}),
-			color: [r, g, b],
-		});
-	};
-
 	return (
 		<KTabs.Content value={TAB_IDS.background} class="flex flex-col gap-6 p-4">
 			<Field icon={<IconCapImage class="size-4" />} name="Background Image">
@@ -2563,10 +2513,6 @@ function BackgroundConfig(props: {
 											});
 										}}
 									/>
-									<BrandColorsDropdown
-										swatches={props.brandColorSwatches}
-										onSelect={setColorBackgroundSource}
-									/>
 								</div>
 
 								<div class="flex flex-wrap gap-2">
@@ -2627,7 +2573,7 @@ function BackgroundConfig(props: {
 						</Show>
 					</KTabs.Content>
 					<KTabs.Content value="gradient">
-						<GradientEditor brandColorSwatches={props.brandColorSwatches} />
+						<GradientEditor />
 					</KTabs.Content>
 				</KTabs>
 			</Field>
@@ -2776,10 +2722,6 @@ function BackgroundConfig(props: {
 											color,
 										})
 									}
-								/>
-								<BrandColorsDropdown
-									swatches={props.brandColorSwatches}
-									onSelect={setBackgroundBorderColor}
 								/>
 							</div>
 						</Field>
@@ -3397,16 +3339,10 @@ function CornerStyleSelect(props: {
 function HexColorInput(props: {
 	value: string;
 	onChange: (value: string) => void;
-	brandColorSwatches?: OrganizationBrandColorSwatch[];
 }) {
 	const [text, setText] = createWritableMemo(() => props.value);
 	let prevColor = props.value;
 	let colorInput: HTMLInputElement | undefined;
-	const selectBrandColor = (color: string) => {
-		setText(color);
-		prevColor = color;
-		props.onChange(color);
-	};
 
 	return (
 		<div class="flex flex-col gap-2">
@@ -3456,10 +3392,6 @@ function HexColorInput(props: {
 					}}
 				/>
 			</div>
-			<BrandColorsDropdown
-				swatches={props.brandColorSwatches ?? []}
-				onSelect={selectBrandColor}
-			/>
 		</div>
 	);
 }
@@ -3613,7 +3545,6 @@ const TEXT_ALIGN_OPTIONS: { value: TextAlign; icon: ValidComponent }[] = [
 function TextSegmentConfig(props: {
 	segmentIndex: number;
 	segment: TextSegment;
-	brandColorSwatches: OrganizationBrandColorSwatch[];
 }) {
 	const { setProject } = useEditorContext();
 	const [installedFonts] = createResource(listSystemFonts, {
@@ -3901,7 +3832,6 @@ function TextSegmentConfig(props: {
 				<div class="flex flex-col gap-3">
 					<HexColorInput
 						value={props.segment.color}
-						brandColorSwatches={props.brandColorSwatches}
 						onChange={(value) =>
 							updateSegment((segment) => {
 								segment.color = value;
@@ -6128,7 +6058,7 @@ function SyncOffsetsConfig() {
 							</Show>
 							<Show when={clipConfig(index())?.offsetsAutoCalculated === true}>
 								<p class="text-gray-11">
-									Cap calculated these offsets automatically to keep audio in
+									Shelf calculated these offsets automatically to keep audio in
 									sync with the video. Adjust them if anything still sounds off.
 								</p>
 							</Show>

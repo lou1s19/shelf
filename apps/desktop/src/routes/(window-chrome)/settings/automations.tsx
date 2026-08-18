@@ -55,7 +55,6 @@ import IconLucideFolderDown from "~icons/lucide/folder-down";
 import IconLucideFolderOpen from "~icons/lucide/folder-open";
 import IconLucideImage from "~icons/lucide/image";
 import IconLucideImport from "~icons/lucide/import";
-import IconLucideLink from "~icons/lucide/link";
 import IconLucidePlus from "~icons/lucide/plus";
 import IconLucideScanText from "~icons/lucide/scan-text";
 import IconLucideTrash2 from "~icons/lucide/trash-2";
@@ -69,7 +68,6 @@ const ALL_TRIGGERS: Trigger[] = [
 	"studioRecordingFinished",
 	"instantRecordingFinished",
 	"recordingStarted",
-	"uploadCompleted",
 	"videoImported",
 	"recordingDeleted",
 ];
@@ -78,7 +76,6 @@ const ALL_ACTION_TYPES: ActionType[] = [
 	"copyToClipboard",
 	"saveToLocation",
 	"export",
-	"upload",
 	"revealInFileManager",
 	"openFile",
 	"recognizeTextToClipboard",
@@ -97,7 +94,6 @@ const ALL_CONDITION_TYPES: Condition["type"][] = [
 	"durationAtLeast",
 	"durationAtMost",
 	"windowTitleContains",
-	"organizationIs",
 ];
 
 type IconComponent = Component<{ class?: string }>;
@@ -217,7 +213,8 @@ const TEMPLATES: Template[] = [
 	{
 		id: "ocr-screenshot",
 		name: "Pull the text out of screenshots",
-		description: "Shelf reads the text in your screenshot and copies it for you.",
+		description:
+			"Shelf reads the text in your screenshot and copies it for you.",
 		icon: IconLucideScanText,
 		build: () =>
 			buildRule({
@@ -263,44 +260,32 @@ const TEMPLATES: Template[] = [
 			}),
 	},
 	{
-		id: "upload-share",
-		name: "Upload and grab the share link",
-		description:
-			"Finish a recording and the link is waiting on your clipboard.",
-		icon: IconLucideLink,
-		build: () =>
-			buildRule({
-				name: "Upload and grab the share link",
-				trigger: "studioRecordingFinished",
-				actions: [defaultActionForType("upload")],
-			}),
-	},
-	{
-		id: "notify-upload",
-		name: "Ping me when an upload is ready",
-		description: "Get a gentle desktop nudge once your recording is shareable.",
+		id: "notify-recording",
+		name: "Ping me when a recording is ready",
+		description: "Get a gentle desktop nudge once your recording is finished.",
 		icon: IconLucideBell,
 		build: () =>
 			buildRule({
-				name: "Ping me when an upload is ready",
-				trigger: "uploadCompleted",
+				name: "Ping me when a recording is ready",
+				trigger: "instantRecordingFinished",
 				actions: [
 					{
 						type: "notify",
 						titleTemplate: "Shelf",
-						bodyTemplate: "Your recording is ready to share.",
+						bodyTemplate: "Your recording is ready.",
 					},
 				],
 			}),
 	},
 	{
-		id: "webhook-share",
-		name: "Tell Slack when you share something",
-		description: "Send the share link to Slack, Discord, or your own webhook.",
+		id: "webhook-recording",
+		name: "Tell Slack when a recording is done",
+		description:
+			"Send a message to Slack, Discord, or your own webhook when a recording finishes.",
 		icon: IconLucideWebhook,
 		build: () =>
 			buildRule({
-				name: "Tell Slack when you share something",
+				name: "Tell Slack when a recording is done",
 				trigger: "instantRecordingFinished",
 				actions: [
 					{
@@ -308,7 +293,7 @@ const TEMPLATES: Template[] = [
 						url: "",
 						method: "POST",
 						headers: {},
-						bodyTemplate: '{"text":"{share_link}"}',
+						bodyTemplate: '{"text":"{project_path}"}',
 					},
 				],
 			}),
@@ -520,7 +505,7 @@ export default function AutomationsSettings() {
 			<SettingsPageContent>
 				<Section
 					title="Automations"
-					description="Run actions automatically when something happens in Shelf. Rules are shared with the Cap CLI."
+					description="Run actions automatically when something happens in Shelf. Rules are shared with the CLI."
 				>
 					<Suspense
 						fallback={<div class="h-24 rounded-xl bg-gray-3 animate-pulse" />}
@@ -1006,18 +991,6 @@ function ConditionValue(props: {
 					}
 				/>
 			);
-		case "organizationIs":
-			return (
-				<TextInput
-					value={c.id}
-					placeholder="Organization ID"
-					onInput={(v) =>
-						props.onChange((cond) => {
-							if (cond.type === "organizationIs") cond.id = v;
-						})
-					}
-				/>
-			);
 	}
 }
 
@@ -1150,48 +1123,6 @@ function ActionParams(props: {
 			);
 		case "export":
 			return <ExportParams action={a} onChange={props.onChange} />;
-		case "upload":
-			return (
-				<div class="space-y-2">
-					<Field label="Organization ID (optional)">
-						<TextInput
-							value={a.organizationId ?? ""}
-							onInput={(v) =>
-								props.onChange((act) => {
-									if (act.type === "upload")
-										act.organizationId = v.length > 0 ? v : null;
-								})
-							}
-						/>
-					</Field>
-					<div class="flex gap-6">
-						<label class="flex gap-2 items-center text-[13px] text-gray-12">
-							<Toggle
-								size="sm"
-								checked={a.copyLink}
-								onChange={(v) =>
-									props.onChange((act) => {
-										if (act.type === "upload") act.copyLink = v;
-									})
-								}
-							/>
-							Copy link to clipboard
-						</label>
-						<label class="flex gap-2 items-center text-[13px] text-gray-12">
-							<Toggle
-								size="sm"
-								checked={a.openInBrowser}
-								onChange={(v) =>
-									props.onChange((act) => {
-										if (act.type === "upload") act.openInBrowser = v;
-									})
-								}
-							/>
-							Open in browser
-						</label>
-					</div>
-				</div>
-			);
 		case "runCommand":
 			return (
 				<div class="space-y-2">
@@ -1268,7 +1199,7 @@ function ActionParams(props: {
 					<Field label="Body template (optional)">
 						<TextInput
 							value={a.bodyTemplate ?? ""}
-							placeholder='{"text":"{share_link}"}'
+							placeholder='{"text":"{project_path}"}'
 							onInput={(v) =>
 								props.onChange((act) => {
 									if (act.type === "webhook")

@@ -1,20 +1,11 @@
 import { createEventListener } from "@solid-primitives/event-listener";
 import { makePersisted } from "@solid-primitives/storage";
-import {
-	createQuery,
-	queryOptions,
-	useMutation,
-	useQuery,
-} from "@tanstack/solid-query";
+import { createQuery, queryOptions, useMutation } from "@tanstack/solid-query";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { batch, createEffect, createMemo, onCleanup } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useRecordingOptions } from "~/routes/(window-chrome)/OptionsContext";
-import {
-	authStore,
-	generalSettingsStore,
-	recordingSettingsStore,
-} from "~/store";
+import { recordingSettingsStore } from "~/store";
 import { createQueryInvalidate } from "./events";
 import {
 	type CameraInfo,
@@ -24,7 +15,6 @@ import {
 	type RecordingTargetMode,
 	type ScreenCaptureTarget,
 } from "./tauri";
-import { orgCustomDomainClient, protectedHeaders } from "./web-api";
 
 export const listWindows = queryOptions({
 	queryKey: ["capture", "windows"] as const,
@@ -176,7 +166,6 @@ export function createOptionsQuery() {
 		targetModeSource?: RecordingTargetModeSource;
 		targetModeDismissal?: TargetModeDismissal | null;
 		cameraID?: DeviceOrModelID | null;
-		organizationId?: string | null;
 		/** @deprecated */
 		cameraLabel: string | null;
 	}>({
@@ -184,7 +173,6 @@ export function createOptionsQuery() {
 		micName: null,
 		cameraLabel: null,
 		mode: "studio",
-		organizationId: null,
 	});
 
 	createEventListener(window, "storage", (e) => {
@@ -210,9 +198,6 @@ export function createOptionsQuery() {
 			if (data?.systemAudio !== undefined) {
 				_setState("captureSystemAudio", data.systemAudio);
 			}
-			if (data?.organizationId !== undefined) {
-				_setState("organizationId", data.organizationId);
-			}
 			initialized = true;
 		});
 	});
@@ -224,7 +209,6 @@ export function createOptionsQuery() {
 			cameraId: _state.cameraID,
 			mode: _state.mode,
 			systemAudio: _state.captureSystemAudio,
-			organizationId: _state.organizationId,
 		};
 
 		if (initialized) {
@@ -252,37 +236,6 @@ export function createCurrentRecordingQuery() {
 	createQueryInvalidate(currentRecording, "currentRecordingChanged");
 
 	return currentRecording;
-}
-
-export function createLicenseQuery() {
-	const query = createQuery(() => ({
-		queryKey: ["licenseQuery"],
-		queryFn: async () => {
-			const settings = await generalSettingsStore.get();
-			const auth = await authStore.get();
-
-			if (auth?.plan?.upgraded) return { type: "pro" as const, ...auth.plan };
-			if (settings?.commercialLicense)
-				return {
-					type: "commercial" as const,
-					...settings.commercialLicense,
-					instanceId: settings.instanceId,
-				};
-			return { type: "personal" as const };
-		},
-	}));
-
-	const generalSettingsCleanup = generalSettingsStore.listen(() =>
-		query.refetch(),
-	);
-	const authCleanup = authStore.listen(() => query.refetch());
-
-	onCleanup(() => {
-		generalSettingsCleanup.then((cleanup) => cleanup());
-		authCleanup.then((cleanup) => cleanup());
-	});
-
-	return query;
 }
 
 export function createCameraMutation() {
@@ -342,42 +295,4 @@ export function createCameraMutation() {
 			},
 		},
 	);
-}
-
-export function createCustomDomainQuery() {
-	return useQuery(() => ({
-		queryKey: ["customDomain"] as const,
-		queryFn: async () => {
-			try {
-				const auth = await authStore.get();
-				if (!auth) return { custom_domain: null, domain_verified: null };
-				const response = await orgCustomDomainClient.getOrgCustomDomain({
-					headers: await protectedHeaders(),
-				});
-				if (response.status === 200) return response.body;
-			} catch (error) {
-				console.error("Error fetching custom domain:", error);
-				return { custom_domain: null, domain_verified: null };
-			}
-		},
-		// This is read during the editor's initial render, under its top-level
-		// Suspense boundary. Without placeholder data, a slow/offline network
-		// keeps the query pending and the whole editor stuck on the skeleton.
-		placeholderData: { custom_domain: null, domain_verified: null },
-		refetchOnMount: true,
-		refetchOnWindowFocus: true,
-	}));
-}
-
-export function createOrganizationsQuery() {
-	const auth = authStore.createQuery();
-
-	// Bootstrap only: auth.rs stamps organizations_updated_at even on org-fetch failure, stopping the loop on self-hosted where the endpoint is absent.
-	createEffect(() => {
-		if (auth.data?.user_id && !auth.data?.organizations_updated_at) {
-			commands.updateAuthPlan().catch(console.error);
-		}
-	});
-
-	return () => auth.data?.organizations ?? [];
 }

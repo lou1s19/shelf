@@ -14,7 +14,7 @@ const modeOptions = [
 		mode: "instant" as RecordingMode,
 		title: "Instant",
 		description:
-			"Share instantly with a link. Your recording uploads as you record, so you can share it immediately when you're done.",
+			"Encodes while you record, so the finished file is ready the moment you stop. No rendering step.",
 		icon: IconCapInstant,
 	},
 	{

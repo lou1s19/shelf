@@ -20,9 +20,7 @@ import { trackEvent } from "~/utils/analytics";
 import { commands } from "~/utils/tauri";
 import { initializeTitlebar } from "~/utils/titlebar-state";
 import { useEditorContext } from "./context";
-import OrganizationDropdown from "./OrganizationDropdown";
 import PresetsDropdown from "./PresetsDropdown";
-import ShareButton from "./ShareButton";
 import { EditorButton } from "./ui";
 
 export type ResolutionOption = {
@@ -54,7 +52,6 @@ export function Header() {
 		meta,
 		exportState,
 		setExportState,
-		customDomain,
 		editorState,
 		setEditorState,
 	} = useEditorContext();
@@ -132,7 +129,6 @@ export function Header() {
 				class="flex flex-row items-center justify-center gap-2 px-4 border-x border-black-transparent-10"
 			>
 				<PresetsDropdown />
-				<OrganizationDropdown />
 			</div>
 
 			<div
@@ -167,9 +163,6 @@ export function Header() {
 					leftIcon={<IconCapRedo class="w-5" />}
 				/>
 				<div data-tauri-drag-region class="flex-1 h-full" />
-				<Show when={customDomain.data}>
-					<ShareButton />
-				</Show>
 				<Button
 					variant={isClipsOpen() ? "white" : "gray"}
 					class="flex gap-1.5 justify-center h-[40px]"

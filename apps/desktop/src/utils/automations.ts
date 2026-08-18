@@ -92,8 +92,7 @@ type TriggerContextField =
 	| "recordingMode"
 	| "duration"
 	| "projectPath"
-	| "filePath"
-	| "shareLink";
+	| "filePath";
 
 // The contextual data each trigger actually provides at runtime, mirroring the Rust `TriggerContext`
 // populated per trigger in `automation.rs`. Used to flag conditions/actions that depend on data a
@@ -101,9 +100,9 @@ type TriggerContextField =
 const TRIGGER_CONTEXT: Record<Trigger, readonly TriggerContextField[]> = {
 	screenshotTaken: ["captureTarget", "windowTitle", "projectPath", "filePath"],
 	studioRecordingFinished: ["recordingMode", "duration", "projectPath"],
-	instantRecordingFinished: ["recordingMode", "projectPath", "shareLink"],
+	instantRecordingFinished: ["recordingMode", "projectPath"],
 	recordingStarted: [],
-	uploadCompleted: ["projectPath", "shareLink"],
+	uploadCompleted: ["projectPath"],
 	videoImported: ["projectPath"],
 	recordingDeleted: ["projectPath"],
 };
@@ -134,7 +133,6 @@ const ACTION_REQUIRES: Partial<
 	deleteLocalFiles: ["projectPath"],
 	revealInFileManager: ["filePath", "projectPath"],
 	openEditor: ["filePath", "projectPath"],
-	upload: ["filePath", "projectPath"],
 };
 
 // `skipEditor` only does anything for the two triggers whose post-capture window is gated on it.

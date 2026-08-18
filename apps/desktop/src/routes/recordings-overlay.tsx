@@ -3,7 +3,7 @@ import Tooltip from "@corvu/tooltip";
 import { createElementBounds } from "@solid-primitives/bounds";
 import { makePersisted } from "@solid-primitives/storage";
 import { createMutation, createQuery } from "@tanstack/solid-query";
-import { Channel, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { cx } from "cva";
 import {
 	type Accessor,
@@ -19,22 +19,13 @@ import {
 	Show,
 	Suspense,
 	Switch,
-	startTransition,
 } from "solid-js";
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";
-import { authStore } from "~/store";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { createExportToFileTask, exportVideo } from "~/utils/export";
-import {
-	commands,
-	events,
-	type FramesRendered,
-	type UploadProgress,
-	type UploadResult,
-} from "~/utils/tauri";
+import { commands, events, type FramesRendered } from "~/utils/tauri";
 import IconCapEditor from "~icons/cap/editor";
-import IconCapUpload from "~icons/cap/upload";
 import IconLucideClock from "~icons/lucide/clock";
 import IconLucideEye from "~icons/lucide/eye";
 import { FPS, OUTPUT_SIZE } from "./editor/context";
@@ -120,10 +111,8 @@ export default function () {
 								const type = media.type ?? "recording";
 								const isRecording = type !== "screenshot";
 
-								const { copy, save, upload, actionState } =
-									createRecordingMutations(media, (e) => {
-										if (e === "upgradeRequired") setShowUpgradeTooltip(true);
-									});
+								const { copy, save, actionState } =
+									createRecordingMutations(media);
 
 								const [metadata] = createResource(async () => {
 									if (!isRecording) return null;
@@ -146,18 +135,10 @@ export default function () {
 								});
 
 								const [imageExists, setImageExists] = createSignal(true);
-								const [showUpgradeTooltip, setShowUpgradeTooltip] =
-									createSignal(false);
 
-								const isLoading = () =>
-									copy.isPending || save.isPending || upload.isPending;
+								const isLoading = () => copy.isPending || save.isPending;
 
 								createFakeWindowBounds(ref, () => media.path);
-
-								const recordingMeta = createQuery(() => ({
-									queryKey: ["recordingMeta", media.path],
-									queryFn: () => commands.getRecordingMeta(media.path, type),
-								}));
 
 								const dragOut = (e: MouseEvent) => {
 									if (isRecording || e.button !== 0) return;
@@ -272,27 +253,6 @@ export default function () {
 															/>
 														)}
 													</Match>
-													<Match
-														when={
-															actionState.type === "upload" && actionState.state
-														}
-														keyed
-													>
-														{(state) => (
-															<ActionProgressOverlay
-																title={
-																	state.type === "rendering"
-																		? "Rendering video"
-																		: state.type === "uploading"
-																			? "Creating shareable link"
-																			: "Shareable link copied"
-																}
-																progressPercentage={actionProgressPercentage(
-																	actionState,
-																)}
-															/>
-														)}
-													</Match>
 												</Switch>
 
 												<div
@@ -301,9 +261,7 @@ export default function () {
 													}}
 													class={cx(
 														"absolute inset-0 transition-all duration-150 pointer-events-auto rounded-[7.4px] dark:text-gray-100",
-														showUpgradeTooltip()
-															? "opacity-100"
-															: "opacity-0 group-hover:opacity-100",
+														"opacity-0 group-hover:opacity-100",
 														"backdrop-blur-sm p-2",
 													)}
 												>
@@ -379,18 +337,6 @@ export default function () {
 													>
 														<IconCapCopy class="size-4" />
 													</TooltipIconButton>
-													<TooltipIconButton
-														class="absolute right-3 bottom-3 z-998"
-														tooltipText={
-															recordingMeta.data?.sharing
-																? "Copy Shareable Link"
-																: "Create Shareable Link"
-														}
-														tooltipPlacement="left"
-														onClick={() => upload.mutate()}
-													>
-														<IconCapUpload class="size-4" />
-													</TooltipIconButton>
 													<div class="flex absolute inset-0 justify-center items-center">
 														<Button
 															variant="white"
@@ -411,7 +357,7 @@ export default function () {
 															}}
 															class={cx(
 																"absolute bottom-0 left-0 right-0 font-medium text-gray-4 bg-[#00000080] backdrop-blur-lg px-3 py-2 flex justify-between items-center pointer-events-none transition-all max-w-full overflow-hidden",
-																isLoading() || showUpgradeTooltip()
+																isLoading()
 																	? "opacity-0"
 																	: "group-hover:opacity-0",
 															)}
@@ -593,10 +539,7 @@ function createFakeWindowBounds(
 	});
 }
 
-function createRecordingMutations(
-	media: MediaEntry,
-	onEvent: (e: "upgradeRequired") => void,
-) {
+function createRecordingMutations(media: MediaEntry) {
 	const type = media.type ?? "recording";
 	const isRecording = type !== "screenshot";
 
@@ -749,131 +692,11 @@ function createRecordingMutations(
 		},
 	}));
 
-	const upload = createMutation(() => ({
-		mutationFn: async () => {
-			if (recordingMeta.data?.sharing) {
-				setActionState({ type: "upload", state: { type: "link-copied" } });
-
-				await commands.writeClipboardString(recordingMeta.data.sharing.link);
-
-				return;
-			}
-
-			// Check connectivity first — prevent hanging on network calls when offline
-			if (!navigator.onLine) {
-				await commands.globalMessageDialog(
-					"You appear to be offline. Please check your internet connection and try again.",
-				);
-				return;
-			}
-
-			// Check authentication first
-			const existingAuth = await authStore.get();
-			if (!existingAuth) {
-				throw new Error("You need to sign in to share recordings");
-			}
-
-			const metadata = await commands.getVideoMetadata(media.path);
-			const plan = await commands.checkUpgradedAndUpdate();
-			const canShare = {
-				allowed: plan || metadata.duration < 300,
-				reason: !plan && metadata.duration >= 300 ? "upgrade_required" : null,
-			};
-
-			if (!canShare.allowed) {
-				if (canShare.reason === "upgrade_required") {
-					await commands.showWindow("Upgrade");
-					throw new Error(
-						"Upgrade required to share recordings longer than 5 minutes",
-					);
-				}
-			}
-
-			const uploadChannel = new Channel<UploadProgress>((progress) => {
-				console.log("Upload progress:", progress);
-				setActionState(
-					produce((actionState) => {
-						if (
-							actionState.type !== "upload" ||
-							actionState.state.type !== "uploading"
-						)
-							return;
-
-						actionState.state.progress = Math.round(progress.progress * 100);
-					}),
-				);
-			});
-
-			let res: UploadResult;
-			if (isRecording) {
-				setActionState({
-					type: "upload",
-					state: { type: "rendering", state: { type: "starting" } },
-				});
-
-				const progress = createRenderProgressCallback("upload", setActionState);
-
-				await exportWithDefaultSettings(progress);
-
-				// Show quick progress animation for existing video
-				setActionState(
-					produce((s) => {
-						if (
-							s.type === "copy" &&
-							s.state.type === "rendering" &&
-							s.state.state.type === "rendering"
-						)
-							s.state.state.renderedFrames = s.state.state.totalFrames;
-					}),
-				);
-
-				setActionState({
-					type: "upload",
-					state: { type: "uploading", progress: 0 },
-				});
-
-				res = await commands.uploadExportedVideo(
-					media.path,
-					{ Initial: { pre_created_video: null } },
-					uploadChannel,
-					null,
-				);
-			} else {
-				setActionState({
-					type: "upload",
-					state: { type: "uploading", progress: 0 },
-				});
-
-				res = await commands.uploadScreenshot(media.path);
-			}
-
-			switch (res) {
-				case "NotAuthenticated":
-					throw new Error("Not authenticated");
-				case "PlanCheckFailed":
-					throw new Error("Plan check failed");
-				case "UpgradeRequired":
-					onEvent("upgradeRequired");
-					return;
-				default:
-					break;
-			}
-
-			setActionState({ type: "upload", state: { type: "link-copied" } });
-		},
-		onSettled() {
-			setTimeout(() => {
-				setActionState({ type: "idle" });
-			}, 2000);
-		},
-		onSuccess: () => startTransition(() => recordingMeta.refetch()),
-	}));
-
 	const [actionState, setActionState] = createStore<ActionState>({
 		type: "idle",
 	});
 
-	return { copy, save, upload, actionState };
+	return { copy, save, actionState };
 }
 
 type ActionState =
@@ -892,17 +715,6 @@ type ActionState =
 				| { type: "rendering"; state: RenderState }
 				| { type: "saving" }
 				| { type: "saved" };
-	  }
-	| {
-			type: "upload";
-			state:
-				| { type: "rendering"; state: RenderState }
-				| {
-						type: "uploading";
-						// 0-100
-						progress: number;
-				  }
-				| { type: "link-copied" };
 	  };
 
 function createRenderProgressCallback(
@@ -950,10 +762,6 @@ function actionProgressPercentage(state: ActionState): number {
 		case "save": {
 			if (state.state.type === "choosing-location") return 0;
 			return state.state.type === "saved" ? 100 : 50;
-		}
-		case "upload": {
-			if (state.state.type === "link-copied") return 100;
-			return state.state.progress;
 		}
 	}
 }

@@ -23,7 +23,7 @@ const MODE_BUTTONS: ModeButtonConfig[] = [
 		mode: "instant",
 		label: "Instant mode",
 		description:
-			"No rendering required — uploads on the fly so you can share the link the moment you stop.",
+			"No rendering required — the finished file is ready the moment you stop.",
 		settingsSection: "instant-quality",
 		icon: (p) => <IconCapInstant {...p} />,
 		iconClass: "size-4 invert dark:invert-0",

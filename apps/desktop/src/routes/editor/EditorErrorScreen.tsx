@@ -70,8 +70,9 @@ export function EditorErrorScreen(props: {
 									Automatic Recovery
 								</h3>
 								<p class="text-xs text-gray-11">
-									Shelf can attempt to recover your recording automatically. This
-									will reconstruct the recording from available segment data.
+									Shelf can attempt to recover your recording automatically.
+									This will reconstruct the recording from available segment
+									data.
 								</p>
 							</div>
 

@@ -1,15 +1,13 @@
-import { Button, ProgressCircle } from "@cap/ui-solid";
+import { Button } from "@cap/ui-solid";
 import Tooltip from "@corvu/tooltip";
 import {
-	createMutation,
 	createQuery,
 	queryOptions,
 	useQueryClient,
 } from "@tanstack/solid-query";
-import { Channel, convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { ask, confirm } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
-import * as shell from "@tauri-apps/plugin-shell";
 import { cx } from "cva";
 import {
 	createEffect,
@@ -20,7 +18,6 @@ import {
 	type ParentProps,
 	Show,
 } from "solid-js";
-import { createStore, produce } from "solid-js/store";
 import CapTooltip from "~/components/Tooltip";
 import { Input } from "~/routes/editor/ui";
 import { trackEvent } from "~/utils/analytics";
@@ -31,7 +28,6 @@ import {
 	commands,
 	events,
 	type RecordingMetaWithMetadata,
-	type UploadProgress,
 } from "~/utils/tauri";
 import IconLucideImport from "~icons/lucide/import";
 import IconLucideSearch from "~icons/lucide/search";
@@ -65,11 +61,7 @@ const PAGE_SIZE = 20;
 
 const hasActiveRecording = (recording: Recording) => {
 	const status = recording.meta.status.status;
-	if (status === "InProgress" || status === "NeedsRemux") return true;
-	const uploadState = recording.meta.upload?.state;
-	return (
-		uploadState === "MultipartUpload" || uploadState === "SinglePartUpload"
-	);
+	return status === "InProgress" || status === "NeedsRemux";
 };
 
 const recordingsQuery = queryOptions<Recording[]>({
@@ -108,24 +100,7 @@ export default function Recordings() {
 	const trimmedSearch = createMemo(() => search().trim());
 	const normalizedSearch = createMemo(() => trimmedSearch().toLowerCase());
 	const [visibleCount, setVisibleCount] = createSignal(PAGE_SIZE);
-	const [uploadProgress, setUploadProgress] = createStore<
-		Record</* video_id */ string, number>
-	>({});
 	const recordings = createQuery(() => recordingsQuery);
-
-	createTauriEventListener(events.uploadProgressEvent, (e) => {
-		if (e.uploaded === "0" && e.total === "0") {
-			setUploadProgress(
-				produce((s) => {
-					delete s[e.video_id];
-				}),
-			);
-		} else {
-			const total = Number(e.total);
-			const progress = total > 0 ? (Number(e.uploaded) / total) * 100 : 0;
-			setUploadProgress(e.video_id, progress);
-		}
-	});
 
 	createTauriEventListener(events.recordingDeleted, () => recordings.refetch());
 
@@ -283,13 +258,6 @@ export default function Recordings() {
 											onCopyVideoToClipboard={() =>
 												handleCopyVideoToClipboard(recording.path)
 											}
-											uploadProgress={
-												recording.meta.upload &&
-												(recording.meta.upload.state === "MultipartUpload" ||
-													recording.meta.upload.state === "SinglePartUpload")
-													? uploadProgress[recording.meta.upload.video_id]
-													: undefined
-											}
 										/>
 									)}
 								</For>
@@ -326,7 +294,6 @@ function RecordingItem(props: {
 	onOpenFolder: () => void;
 	onOpenEditor: () => void;
 	onCopyVideoToClipboard: () => void;
-	uploadProgress: number | undefined;
 }) {
 	const [imageExists, setImageExists] = createSignal(true);
 	const mode = () => props.recording.meta.mode;
@@ -422,25 +389,6 @@ function RecordingItem(props: {
 			</div>
 			<div class="flex gap-2 items-center">
 				<Show when={mode() === "studio"}>
-					<Show when={props.uploadProgress}>
-						<CapTooltip content={`${(props.uploadProgress || 0).toFixed(2)}%`}>
-							<ProgressCircle
-								variant="primary"
-								progress={props.uploadProgress || 0}
-								size="sm"
-							/>
-						</CapTooltip>
-					</Show>
-					<Show when={props.recording.meta.sharing}>
-						{(sharing) => (
-							<TooltipIconButton
-								tooltipText="Open link"
-								onClick={() => shell.open(sharing().link)}
-							>
-								<IconCapLink class="size-4" />
-							</TooltipIconButton>
-						)}
-					</Show>
 					<TooltipIconButton
 						tooltipText="Edit"
 						onClick={async () => {
@@ -461,52 +409,6 @@ function RecordingItem(props: {
 					>
 						<IconLucideEdit class="size-4" />
 					</TooltipIconButton>
-				</Show>
-				<Show when={mode() === "instant"}>
-					{(_) => {
-						const reupload = createMutation(() => ({
-							mutationFn: () =>
-								commands.uploadExportedVideo(
-									props.recording.path,
-									"Reupload",
-									new Channel<UploadProgress>((_progress) => {}),
-									null,
-								),
-						}));
-
-						return (
-							<>
-								<Show
-									when={props.uploadProgress || reupload.isPending}
-									fallback={
-										<TooltipIconButton
-											tooltipText="Reupload"
-											onClick={() => reupload.mutate()}
-										>
-											<IconLucideRotateCcw class="size-4" />
-										</TooltipIconButton>
-									}
-								>
-									<ProgressCircle
-										variant="primary"
-										progress={props.uploadProgress || 0}
-										size="sm"
-									/>
-								</Show>
-
-								<Show when={props.recording.meta.sharing}>
-									{(sharing) => (
-										<TooltipIconButton
-											tooltipText="Open link"
-											onClick={() => shell.open(sharing().link)}
-										>
-											<IconCapLink class="size-4" />
-										</TooltipIconButton>
-									)}
-								</Show>
-							</>
-						);
-					}}
 				</Show>
 				<TooltipIconButton
 					tooltipText="Open recording bundle"

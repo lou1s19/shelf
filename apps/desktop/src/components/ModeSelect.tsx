@@ -65,7 +65,7 @@ const ModeSelect = (props: { onClose?: () => void; standalone?: boolean }) => {
 		{
 			mode: "instant" as const,
 			title: "Instant",
-			description: "Share instantly with a link. Uploads as you record.",
+			description: "A finished file the moment you stop recording.",
 			icon: IconCapInstant,
 		},
 		{

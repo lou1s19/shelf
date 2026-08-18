@@ -22,8 +22,8 @@ import "./styles/theme.css";
 import { CapErrorBoundary } from "./components/CapErrorBoundary";
 import WindowChromeLayout from "./routes/(window-chrome)";
 import SettingsLayout from "./routes/(window-chrome)/settings";
-import { authStore, generalSettingsStore } from "./store";
-import { identifyUser, initAnonymousUser } from "./utils/analytics";
+import { generalSettingsStore } from "./store";
+import { initAnonymousUser } from "./utils/analytics";
 import { type AppTheme, commands } from "./utils/tauri";
 import titlebar from "./utils/titlebar-state";
 
@@ -49,34 +49,12 @@ const SettingsHotkeysPage = lazy(
 const SettingsCliPage = lazy(
 	() => import("./routes/(window-chrome)/settings/cli"),
 );
-const SettingsChangelogPage = lazy(
-	() => import("./routes/(window-chrome)/settings/changelog"),
-);
-const SettingsFeedbackPage = lazy(
-	() => import("./routes/(window-chrome)/settings/feedback"),
-);
 const SettingsExperimentalPage = lazy(
 	() => import("./routes/(window-chrome)/settings/experimental"),
-);
-const SettingsLicensePage = lazy(
-	() => import("./routes/(window-chrome)/settings/license"),
-);
-const SettingsIntegrationsPage = lazy(
-	() => import("./routes/(window-chrome)/settings/integrations"),
-);
-const SettingsS3ConfigPage = lazy(
-	() => import("./routes/(window-chrome)/settings/integrations/s3-config"),
-);
-const SettingsGoogleDriveConfigPage = lazy(
-	() =>
-		import(
-			"./routes/(window-chrome)/settings/integrations/google-drive-config"
-		),
 );
 const OnboardingPage = lazy(
 	() => import("./routes/(window-chrome)/onboarding"),
 );
-const UpgradePage = lazy(() => import("./routes/(window-chrome)/upgrade"));
 const UpdatePage = lazy(() => import("./routes/(window-chrome)/update"));
 const CameraPage = lazy(() => import("./routes/camera"));
 const CaptureAreaPage = lazy(() => import("./routes/capture-area"));
@@ -127,11 +105,6 @@ function Inner() {
 
 	onMount(() => {
 		initAnonymousUser();
-		// OpenPanel keeps profileId in memory only (PostHog persisted it), so
-		// sign-in-time identify alone loses attribution after an app restart.
-		void authStore.get().then((auth) => {
-			if (auth?.user_id) identifyUser(auth.user_id);
-		});
 		prewarmFontCaches();
 	});
 
@@ -202,28 +175,12 @@ function Inner() {
 							<Route path="/automations" component={SettingsAutomationsPage} />
 							<Route path="/hotkeys" component={SettingsHotkeysPage} />
 							<Route path="/cli" component={SettingsCliPage} />
-							<Route path="/changelog" component={SettingsChangelogPage} />
-							<Route path="/feedback" component={SettingsFeedbackPage} />
 							<Route
 								path="/experimental"
 								component={SettingsExperimentalPage}
 							/>
-							<Route path="/license" component={SettingsLicensePage} />
-							<Route
-								path="/integrations"
-								component={SettingsIntegrationsPage}
-							/>
-							<Route
-								path="/integrations/s3-config"
-								component={SettingsS3ConfigPage}
-							/>
-							<Route
-								path="/integrations/google-drive-config"
-								component={SettingsGoogleDriveConfigPage}
-							/>
 						</Route>
 						<Route path="/onboarding" component={OnboardingPage} />
-						<Route path="/upgrade" component={UpgradePage} />
 						<Route path="/update" component={UpdatePage} />
 					</Route>
 					<Route path="/camera" component={CameraPage} />

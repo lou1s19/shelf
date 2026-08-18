@@ -7,7 +7,6 @@ import {
 	defaultKeyboardSettings,
 	type KeyboardSettings,
 } from "~/store/keyboard";
-import type { OrganizationBrandColorSwatch } from "~/utils/organization-branding";
 import { commands } from "~/utils/tauri";
 import IconCapChevronDown from "~icons/cap/chevron-down";
 import IconCapCircleCheck from "~icons/cap/circle-check";
@@ -30,9 +29,7 @@ import {
 	topSlideAnimateClasses,
 } from "./ui";
 
-export function KeyboardTab(props: {
-	brandColorSwatches: OrganizationBrandColorSwatch[];
-}) {
+export function KeyboardTab() {
 	const { project, setProject, editorState, setEditorState } =
 		useEditorContext();
 
@@ -207,7 +204,6 @@ export function KeyboardTab(props: {
 								<span class="text-gray-11 text-sm">Text Color</span>
 								<HexColorInput
 									value={getSetting("color")}
-									brandColorSwatches={props.brandColorSwatches}
 									onChange={(value) => updateSetting("color", value)}
 								/>
 							</div>
@@ -220,7 +216,6 @@ export function KeyboardTab(props: {
 								<span class="text-gray-11 text-sm">Background Color</span>
 								<HexColorInput
 									value={getSetting("backgroundColor")}
-									brandColorSwatches={props.brandColorSwatches}
 									onChange={(value) => updateSetting("backgroundColor", value)}
 								/>
 							</div>

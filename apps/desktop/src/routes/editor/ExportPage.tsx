@@ -2,8 +2,6 @@ import { Button } from "@cap/ui-solid";
 import { debounce } from "@solid-primitives/scheduled";
 import { makePersisted } from "@solid-primitives/storage";
 import { createMutation } from "@tanstack/solid-query";
-import { Channel } from "@tauri-apps/api/core";
-import { CheckMenuItem, Menu } from "@tauri-apps/api/menu";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { remove } from "@tauri-apps/plugin-fs";
 import { type as ostype } from "@tauri-apps/plugin-os";
@@ -17,29 +15,23 @@ import {
 	on,
 	onCleanup,
 	Show,
-	Suspense,
 	Switch,
 } from "solid-js";
 import { createStore, produce, reconcile } from "solid-js/store";
 import toast from "solid-toast";
-import { SignInButton } from "~/components/SignInButton";
 import Tooltip from "~/components/Tooltip";
 import CaptionControlsWindows11 from "~/components/titlebar/controls/CaptionControlsWindows11";
-import { authStore } from "~/store";
 import { trackEvent } from "~/utils/analytics";
-import { createSignInMutation } from "~/utils/auth";
 import {
 	beginExportSessionGuard,
 	createExportTask,
 	createExportToFileTask,
 } from "~/utils/export";
-import { createSelectedOrganization } from "~/utils/organization-branding";
 import {
 	commands,
 	type ExportCompression,
 	type ExportSettings,
 	type FramesRendered,
-	type UploadProgress,
 } from "~/utils/tauri";
 import { type RenderState, useEditorContext } from "./context";
 import { RESOLUTION_OPTIONS } from "./Header";
@@ -92,12 +84,6 @@ export const EXPORT_TO_OPTIONS = [
 		icon: IconCapCopy,
 		description: "Copy to paste anywhere",
 	},
-	{
-		label: "Shareable Link",
-		value: "link",
-		icon: IconCapLink,
-		description: "Share via Cap cloud",
-	},
 ] as const;
 
 type ExportFormat = ExportSettings["format"];
@@ -116,7 +102,6 @@ interface Settings {
 	resolution: { label: string; value: string; width: number; height: number };
 	compression: ExportCompression;
 	optimizeFilesize: boolean;
-	organizationId?: string | null;
 }
 
 function buildExportSettings(
@@ -167,14 +152,9 @@ export function ExportPage() {
 		setExportState,
 		exportState,
 		meta,
-		refetchMeta,
 	} = useEditorContext();
 
 	const projectPath = editorInstance.path;
-
-	const auth = authStore.createQuery();
-	const organizationSelection = createSelectedOrganization();
-	const organisations = organizationSelection.organizations;
 
 	const hasTransparentBackground = () => {
 		const backgroundSource =
@@ -215,11 +195,8 @@ export function ExportPage() {
 	const [cursorOnly, setCursorOnly] = createSignal(false);
 
 	const requiresTransparentExport = () => hasTransparentBackground();
-	const disablesLinkExport = () => hasTransparentBackground() || cursorOnly();
 	const shouldUseGifMode = () =>
-		!cursorOnly() &&
-		(hasTransparentBackground() ||
-			(_settings.format === "Gif" && _settings.exportTo !== "link"));
+		!cursorOnly() && (hasTransparentBackground() || _settings.format === "Gif");
 	const isMovCursorOnlyExport = () => cursorOnly();
 	const resetTransientExportOptions = () => {
 		setCursorOnly(false);
@@ -232,19 +209,12 @@ export function ExportPage() {
 	const settings = mergeProps(_settings, () => {
 		const ret: Partial<Settings> = {};
 		if (!["Mp4", "Gif"].includes(_settings.format)) ret.format = "Mp4";
-		else if (!cursorOnly()) {
-			if (requiresTransparentExport() && _settings.format === "Mp4")
-				ret.format = "Gif";
-			else if (
-				!requiresTransparentExport() &&
-				_settings.format === "Gif" &&
-				_settings.exportTo === "link"
-			)
-				ret.format = "Mp4";
-		}
-
-		if (disablesLinkExport() && _settings.exportTo === "link")
-			ret.exportTo = "file";
+		else if (
+			!cursorOnly() &&
+			requiresTransparentExport() &&
+			_settings.format === "Mp4"
+		)
+			ret.format = "Gif";
 
 		if (shouldUseGifMode()) {
 			if (!["720p", "1080p"].includes(_settings.resolution.value)) {
@@ -259,23 +229,6 @@ export function ExportPage() {
 
 		if (!VALID_COMPRESSIONS.includes(_settings.compression))
 			ret.compression = "Maximum";
-
-		Object.defineProperty(ret, "organizationId", {
-			get() {
-				const selectedOrganizationId =
-					organizationSelection.selectedOrganizationId();
-				if (!_settings.organizationId) return selectedOrganizationId;
-				if (
-					organisations().some(
-						(organization) => organization.id === _settings.organizationId,
-					)
-				) {
-					return _settings.organizationId;
-				}
-
-				return selectedOrganizationId;
-			},
-		});
 
 		return ret;
 	});
@@ -636,103 +589,6 @@ export function ExportPage() {
 		},
 	}));
 
-	const upload = createMutation(() => ({
-		mutationFn: async () => {
-			setIsCancelled(false);
-			if (exportState.type !== "idle") return;
-			const releaseExportSession = await beginExportSessionGuard();
-			try {
-				setExportState(reconcile({ action: "upload", type: "starting" }));
-
-				const existingAuth = await authStore.get();
-				if (!existingAuth) createSignInMutation();
-				trackEvent("create_shareable_link_clicked", {
-					resolution: settings.resolution,
-					fps: settings.fps,
-					has_existing_auth: !!existingAuth,
-				});
-
-				const metadata = await commands.getVideoMetadata(projectPath);
-				const plan = await commands.checkUpgradedAndUpdate();
-				const canShare = {
-					allowed: plan || metadata.duration < 300,
-					reason: !plan && metadata.duration >= 300 ? "upgrade_required" : null,
-				};
-
-				if (!canShare.allowed) {
-					if (canShare.reason === "upgrade_required") {
-						await commands.showWindow("Upgrade");
-						await new Promise((resolve) => setTimeout(resolve, 1000));
-						throw new SilentError();
-					}
-				}
-
-				const uploadChannel = new Channel<UploadProgress>((progress) => {
-					console.log("Upload progress:", progress);
-					setExportState(
-						produce((state) => {
-							if (state.type !== "uploading") return;
-
-							state.progress = Math.round(progress.progress * 100);
-						}),
-					);
-				});
-
-				await exportWithSettings((progress) => {
-					if (isCancelled()) throw new SilentError("Cancelled");
-					setExportState({ type: "rendering", progress });
-				});
-
-				if (isCancelled()) throw new SilentError("Cancelled");
-
-				setExportState({ type: "uploading", progress: 0 });
-
-				console.log({ organizationId: settings.organizationId });
-
-				const result = meta().sharing
-					? await commands.uploadExportedVideo(
-							projectPath,
-							"Reupload",
-							uploadChannel,
-							settings.organizationId ?? null,
-						)
-					: await commands.uploadExportedVideo(
-							projectPath,
-							{ Initial: { pre_created_video: null } },
-							uploadChannel,
-							settings.organizationId ?? null,
-						);
-
-				if (result === "NotAuthenticated")
-					throw new Error("You need to sign in to share recordings");
-				else if (result === "PlanCheckFailed")
-					throw new Error("Failed to verify your subscription status");
-				else if (result === "UpgradeRequired")
-					throw new Error("This feature requires an upgraded plan");
-			} finally {
-				await releaseExportSession();
-			}
-		},
-		onSuccess: async () => {
-			await refetchMeta();
-			setExportState({ type: "done" });
-		},
-		onError: (error) => {
-			if (isCancelled() || isCancellationError(error)) {
-				setExportState(reconcile({ type: "idle" }));
-				return;
-			}
-			console.error(error);
-			if (!(error instanceof SilentError)) {
-				commands.globalMessageDialog(
-					error instanceof Error ? error.message : "Failed to upload recording",
-				);
-			}
-
-			setExportState(reconcile({ type: "idle" }));
-		},
-	}));
-
 	const formatDuration = (seconds: number) => {
 		const hours = Math.floor(seconds / 3600);
 		const minutes = Math.floor((seconds % 3600) / 60);
@@ -907,15 +763,8 @@ export function ExportPage() {
 									{(option) => {
 										const Icon = option.icon;
 										const isSelected = () => settings.exportTo === option.value;
-										const isDisabled = () =>
-											option.value === "link" && disablesLinkExport();
-										const disabledReason = () =>
-											isDisabled()
-												? cursorOnly()
-													? "Cursor-only exports can only be saved to a file or clipboard"
-													: "Transparent exports can only be saved to a file or clipboard"
-												: undefined;
-										const button = (
+
+										return (
 											<button
 												type="button"
 												class={cx(
@@ -923,22 +772,9 @@ export function ExportPage() {
 													isSelected()
 														? "bg-gray-3 border-gray-5 text-gray-12"
 														: "bg-transparent border-transparent text-gray-11 hover:bg-gray-3 hover:border-gray-4",
-													isDisabled() && "opacity-50 cursor-not-allowed",
 												)}
-												disabled={isDisabled()}
 												onClick={() => {
-													setSettings(
-														produce((newSettings) => {
-															newSettings.exportTo =
-																option.value as ExportToOption;
-															if (
-																option.value === "link" &&
-																settings.format === "Gif"
-															) {
-																newSettings.format = "Mp4";
-															}
-														}),
-													);
+													setSettings("exportTo", option.value);
 												}}
 											>
 												<Icon
@@ -950,59 +786,9 @@ export function ExportPage() {
 												<span class="text-xs font-medium">{option.label}</span>
 											</button>
 										);
-
-										return disabledReason() ? (
-											<Tooltip content={disabledReason()}>{button}</Tooltip>
-										) : (
-											button
-										);
 									}}
 								</For>
 							</div>
-
-							<Suspense>
-								<Show
-									when={
-										settings.exportTo === "link" && organisations().length > 1
-									}
-								>
-									<button
-										type="button"
-										class="w-full flex items-center justify-between px-3 py-2 mt-3 rounded-lg bg-gray-3 hover:bg-gray-4 transition-colors text-sm"
-										onClick={async () => {
-											const menu = await Menu.new({
-												items: await Promise.all(
-													organisations().map((org) =>
-														CheckMenuItem.new({
-															text: org.name,
-															action: () => {
-																setSettings("organizationId", org.id);
-																void organizationSelection
-																	.setSelectedOrganizationId(org.id)
-																	.catch(console.error);
-															},
-															checked: settings.organizationId === org.id,
-														}),
-													),
-												),
-											});
-											menu.popup();
-										}}
-									>
-										<span class="text-gray-11">Organization</span>
-										<span class="flex items-center gap-1 text-gray-12">
-											{
-												(
-													organisations().find(
-														(o) => o.id === settings.organizationId,
-													) ?? organisations()[0]
-												)?.name
-											}
-											<IconCapChevronDown class="size-4" />
-										</span>
-									</button>
-								</Show>
-							</Suspense>
 						</Field>
 
 						<Field name="Format" icon={<IconLucideVideo class="size-4" />}>
@@ -1011,18 +797,14 @@ export function ExportPage() {
 									{(option) => {
 										const isDisabled = () =>
 											cursorOnly() ||
-											(option.value === "Mp4" && requiresTransparentExport()) ||
-											(option.value === "Gif" && settings.exportTo === "link");
+											(option.value === "Mp4" && requiresTransparentExport());
 
 										const disabledReason = () =>
 											cursorOnly()
 												? "Cursor-only export always uses transparent MOV"
 												: option.value === "Mp4" && requiresTransparentExport()
 													? "MP4 doesn't support transparency"
-													: option.value === "Gif" &&
-															settings.exportTo === "link"
-														? "Links require MP4 format"
-														: undefined;
+													: undefined;
 
 										const button = (
 											<button
@@ -1374,46 +1156,27 @@ export function ExportPage() {
 					</div>
 
 					<div class="p-4 border-t border-gray-3">
-						{settings.exportTo === "link" && !auth.data ? (
-							<div class="flex flex-col items-center gap-2.5">
-								<SignInButton class="w-full justify-center">
-									<IconCapLink class="size-4" />
-									<span>Sign in to share</span>
-								</SignInButton>
-							</div>
-						) : (
-							<div class="flex flex-col items-center gap-2.5">
-								<Button
-									class="w-full gap-2 h-12 text-base"
-									variant="blue"
-									size="lg"
-									onClick={() => {
-										if (settings.exportTo === "file") save.mutate();
-										else if (settings.exportTo === "link") upload.mutate();
-										else copy.mutate();
-									}}
-								>
-									{settings.exportTo === "file" && (
-										<>
-											<IconCapFile class="size-5" />
-											Export to File
-										</>
-									)}
-									{settings.exportTo === "clipboard" && (
-										<>
-											<IconCapCopy class="size-5" />
-											Export to Clipboard
-										</>
-									)}
-									{settings.exportTo === "link" && (
-										<>
-											<IconCapLink class="size-5" />
-											Export to Link
-										</>
-									)}
-								</Button>
-							</div>
-						)}
+						<Button
+							class="w-full gap-2 h-12 text-base"
+							variant="blue"
+							size="lg"
+							onClick={() => {
+								if (settings.exportTo === "file") save.mutate();
+								else copy.mutate();
+							}}
+						>
+							{settings.exportTo === "file" ? (
+								<>
+									<IconCapFile class="size-5" />
+									Export to File
+								</>
+							) : (
+								<>
+									<IconCapCopy class="size-5" />
+									Export to Clipboard
+								</>
+							)}
+						</Button>
 					</div>
 				</div>
 			</div>
@@ -1465,7 +1228,6 @@ export function ExportPage() {
 
 			<Show when={exportState.type !== "idle" && exportState} keyed>
 				{(exportState) => {
-					const [copyPressed, setCopyPressed] = createSignal(false);
 					const [clipboardCopyPressed, setClipboardCopyPressed] =
 						createSignal(false);
 
@@ -1555,95 +1317,10 @@ export function ExportPage() {
 										</Switch>
 									)}
 								</Match>
-
-								<Match
-									when={exportState.action === "upload" && exportState}
-									keyed
-								>
-									{(uploadState) => (
-										<Switch>
-											<Match
-												when={uploadState.type === "uploading" && uploadState}
-												keyed
-											>
-												{(uploading) => (
-													<ActiveExport
-														heading="Uploading"
-														percent={uploading.progress}
-													/>
-												)}
-											</Match>
-											<Match
-												when={
-													(uploadState.type === "starting" ||
-														uploadState.type === "rendering") &&
-													uploadState
-												}
-												keyed
-											>
-												{(renderState) => (
-													<ActiveExport
-														heading={
-															renderState.type === "rendering"
-																? `Rendering ${exportMediumLabel()}`
-																: "Preparing export"
-														}
-														state={renderState}
-														onCancel={handleCancel}
-													/>
-												)}
-											</Match>
-											<Match when={uploadState.type === "done"}>
-												<CompletedExport
-													title="Upload complete"
-													subtitle="Your Cap has been uploaded successfully"
-												/>
-											</Match>
-										</Switch>
-									)}
-								</Match>
 							</Switch>
 
 							<Show when={exportState.type === "done"}>
 								<div class="flex flex-col gap-3 items-center">
-									<Show
-										when={
-											exportState.action === "upload" && meta().sharing?.link
-										}
-									>
-										{(link) => (
-											<div class="flex gap-2">
-												<Button
-													onClick={() => {
-														setCopyPressed(true);
-														setTimeout(() => {
-															setCopyPressed(false);
-														}, 2000);
-														navigator.clipboard.writeText(link());
-													}}
-													variant="dark"
-													class="flex gap-2 justify-center items-center"
-												>
-													{!copyPressed() ? (
-														<IconCapCopy class="transition-colors duration-200 text-gray-1 size-4 group-hover:text-gray-12" />
-													) : (
-														<IconLucideCheck class="transition-colors duration-200 text-gray-1 size-4 svgpathanimation group-hover:text-gray-12" />
-													)}
-													<p>Copy Link</p>
-												</Button>
-												<a href={link()} target="_blank" rel="noreferrer">
-													<Button
-														variant="dark"
-														class="flex gap-2 justify-center items-center"
-													>
-														<IconCapLink class="transition-colors duration-200 text-gray-1 size-4 group-hover:text-gray-12" />
-														<p>Open Link</p>
-													</Button>
-												</a>
-											</div>
-										)}
-									</Show>
-
 									<Show when={exportState.action === "save"}>
 										<div class="flex gap-3">
 											<Button
@@ -1703,8 +1380,8 @@ export function ExportPage() {
 							<Show when={exportState.type !== "done"}>
 								<p class="max-w-sm text-xs leading-relaxed text-center text-gray-11">
 									<span class="font-semibold text-gray-12">Tip:</span> Use
-									Instant Mode for your next recording to record and upload on
-									the fly, with no exporting required.
+									Instant Mode for your next recording to get a finished file
+									right away, with no exporting required.
 								</p>
 							</Show>
 						</div>

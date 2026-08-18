@@ -4,7 +4,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { type as ostype } from "@tauri-apps/plugin-os";
 import { relaunch } from "@tauri-apps/plugin-process";
-import * as shell from "@tauri-apps/plugin-shell";
 import { cx } from "cva";
 import {
 	createEffect,
@@ -45,7 +44,6 @@ import IconLucideArrowRight from "~icons/lucide/arrow-right";
 import IconLucideCheck from "~icons/lucide/check";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideCopy from "~icons/lucide/copy";
-import IconLucideExternalLink from "~icons/lucide/external-link";
 import IconLucideSave from "~icons/lucide/save";
 import IconLucideShield from "~icons/lucide/shield";
 import IconLucideVolume2 from "~icons/lucide/volume-2";
@@ -71,15 +69,15 @@ const modes: ModeDetail[] = [
 	{
 		id: "instant",
 		title: "Instant Mode",
-		tagline: "Record & share in seconds",
+		tagline: "Record and done in seconds",
 		description:
-			"Your recording uploads as you capture. Stop recording and instantly get a shareable link — no waiting.",
+			"Encodes while you capture. Stop recording and the finished file is already there — no rendering step.",
 		icon: IconCapInstant,
 		features: [
-			"Instant shareable link",
-			"Background uploading",
-			"AI transcription & summary",
-			"Browser-based playback",
+			"Ready the moment you stop",
+			"No rendering step",
+			"Saved straight to disk",
+			"Copy or open in one click",
 		],
 	},
 	{
@@ -93,7 +91,7 @@ const modes: ModeDetail[] = [
 			"Full quality local recording",
 			"Built-in editor & effects",
 			"Custom backgrounds & padding",
-			"Export or share when ready",
+			"Export to a file when ready",
 		],
 	},
 	{
@@ -101,13 +99,13 @@ const modes: ModeDetail[] = [
 		title: "Screenshot Mode",
 		tagline: "Capture & beautify instantly",
 		description:
-			"Take screenshots with a single hotkey, add annotations and beautiful backgrounds, then share or copy instantly.",
+			"Take screenshots with a single hotkey, add annotations and beautiful backgrounds, then copy or save instantly.",
 		icon: IconCapScreenshot,
 		features: [
 			"Instant hotkey capture",
 			"Annotation & drawing tools",
 			"Beautiful backgrounds",
-			"Copy, save, or share",
+			"Copy or save to a file",
 		],
 	},
 ];
@@ -963,12 +961,8 @@ function ShortcutsStep(props: { active: boolean }) {
 			desc: "Global hotkeys for recording, screenshots, and switching modes",
 		},
 		{
-			title: "Custom S3 Storage",
-			desc: "Connect your own S3-compatible bucket for full control over your recordings",
-		},
-		{
-			title: "Custom Domain",
-			desc: "Use your own domain for shareable links instead of cap.so",
+			title: "Storage Location",
+			desc: "Choose the folder where your recordings and screenshots are saved",
 		},
 		{
 			title: "Recording Preferences",
@@ -991,8 +985,8 @@ function ShortcutsStep(props: { active: boolean }) {
 					Make Shelf yours
 				</h2>
 				<p class="text-[14px] text-gray-10 leading-relaxed">
-					Customize everything from keyboard shortcuts to storage. Shelf adapts to
-					your workflow.
+					Customize everything from keyboard shortcuts to storage. Shelf adapts
+					to your workflow.
 				</p>
 			</div>
 
@@ -1070,33 +1064,24 @@ function FaqStep(props: { active: boolean }) {
 					visible() ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4",
 				)}
 			>
-				<FaqItem question="Is Shelf free to use?">
+				<FaqItem question="Does Shelf need an account?">
 					<p class="text-[13px] text-gray-10 leading-relaxed">
-						Shelf is free for personal use. For teams and commercial use, check
-						out our{" "}
-						<button
-							type="button"
-							onClick={() => shell.open("https://cap.so/pricing")}
-							class="text-blue-10 hover:text-blue-11 underline underline-offset-2"
-						>
-							pricing plans
-						</button>
-						.
+						No. Shelf works entirely on your computer. There is no sign-in and
+						nothing is sent anywhere.
 					</p>
 				</FaqItem>
 				<FaqItem question="What's the difference between Instant and Studio?">
 					<p class="text-[13px] text-gray-10 leading-relaxed">
-						Instant mode uploads as you record — stop recording and you'll have
-						a shareable link immediately. Studio mode records locally in full
-						quality, letting you edit with backgrounds, effects, and more before
-						sharing.
+						Instant mode encodes while you record, so the finished file is ready
+						the moment you stop. Studio mode records locally in full quality,
+						letting you edit with backgrounds, effects, and more before you
+						export.
 					</p>
 				</FaqItem>
 				<FaqItem question="Where are my recordings stored?">
 					<p class="text-[13px] text-gray-10 leading-relaxed">
-						All recordings are stored locally on your computer. In Instant mode,
-						they're also uploaded to Cap's cloud for easy sharing. You can
-						manage storage in Settings.
+						All recordings stay on your computer. You can change the folder in
+						Settings.
 					</p>
 				</FaqItem>
 				<FaqItem question="Can I change my shortcuts later?">
@@ -1105,26 +1090,7 @@ function FaqStep(props: { active: boolean }) {
 						keyboard shortcuts.
 					</p>
 				</FaqItem>
-				<FaqItem question="How does sharing work?">
-					<p class="text-[13px] text-gray-10 leading-relaxed">
-						In Instant mode, you get a shareable link automatically when you
-						stop recording. In Studio mode, export your edited video and share
-						via Cap's cloud or save locally.
-					</p>
-				</FaqItem>
 			</div>
-
-			<button
-				type="button"
-				onClick={() => shell.open("https://cap.so/pricing")}
-				class={cx(
-					"flex items-center gap-1.5 text-[13px] text-blue-10 hover:text-blue-11 transition-all duration-500 delay-200",
-					visible() ? "opacity-100" : "opacity-0",
-				)}
-			>
-				View pricing plans
-				<IconLucideExternalLink class="size-3" />
-			</button>
 		</div>
 	);
 }
@@ -1385,7 +1351,7 @@ function InstantMockup(props: { active: boolean }) {
 	return (
 		<div class="w-full h-full flex flex-col min-h-0 p-4">
 			<MockupStepBar
-				steps={["Record", "Stop", "Share link"]}
+				steps={["Record", "Stop", "Done"]}
 				activeStep={activeStep()}
 			/>
 			<div class="relative flex-1 min-h-[200px] w-full max-w-[420px] mx-auto">
@@ -1437,13 +1403,13 @@ function InstantMockup(props: { active: boolean }) {
 									<IconLucideCheck class="size-3 text-green-600" />
 								</div>
 								<span class="text-[12px] font-medium text-gray-12">
-									Link ready to share!
+									Recording ready!
 								</span>
 							</div>
 							<div class="flex items-center gap-2 w-full">
 								<div class="flex-1 flex items-center px-3 py-2 rounded-lg bg-white dark:bg-gray-3 border border-gray-4">
 									<span class="text-[11px] text-gray-11 font-mono">
-										cap.so/s/m4k92x
+										Recording.mp4
 									</span>
 								</div>
 								<div

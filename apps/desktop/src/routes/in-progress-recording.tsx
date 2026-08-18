@@ -23,7 +23,6 @@ import {
 } from "solid-js";
 import { createStore, produce } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";
-import { authStore } from "~/store";
 import { getCameraWindow } from "~/utils/camera-window";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import {
@@ -54,7 +53,6 @@ declare global {
 	}
 }
 
-const MAX_RECORDING_FOR_FREE = 5 * 60 * 1000;
 const NO_MICROPHONE = "No Microphone";
 const NO_WEBCAM = "No Webcam";
 const FAKE_WINDOW_BOUNDS_NAME = "recording-controls-interactive-area";
@@ -94,16 +92,6 @@ function InProgressRecordingInner() {
 	const optionsQuery = createOptionsQuery();
 	const startedWithMicrophone = optionsQuery.rawOptions.micName != null;
 	const startedWithCameraInput = optionsQuery.rawOptions.cameraID != null;
-
-	const [authData, setAuthData] = createSignal<{
-		plan?: { upgraded?: boolean };
-	} | null>(null);
-	onMount(() => {
-		authStore
-			.get()
-			.then(setAuthData)
-			.catch(() => setAuthData(null));
-	});
 
 	const audioLevel = createAudioInputLevel();
 	const [disconnectedInputs, setDisconnectedInputs] =
@@ -222,7 +210,6 @@ function InProgressRecordingInner() {
 				setPauseResumes([]);
 				setStopRequested(false);
 				setMicMuted(false);
-				aborted = false;
 				// This window is reused across recordings, so `start`/`time` still
 				// hold the previous session's values here. Effects (the free-plan
 				// length limit) run synchronously on the state flip below, so the
@@ -318,7 +305,6 @@ function InProgressRecordingInner() {
 			setPauseResumes([]);
 			setStopRequested(false);
 			setMicMuted(false);
-			aborted = false;
 			if (recording.status === "recording") {
 				setStart(Date.now());
 				setTime(Date.now());
@@ -338,7 +324,6 @@ function InProgressRecordingInner() {
 			setDegradedReason(null);
 			setPauseResumes([]);
 			setMicMuted(false);
-			aborted = false;
 			setStart(Date.now());
 			setTime(Date.now());
 			setState({ variant: "recording" });
@@ -525,7 +510,7 @@ function InProgressRecordingInner() {
 			setTeardownInFlight(true);
 			setState({ variant: "initializing" });
 			try {
-				await handleRecordingResult(commands.restartRecording(), undefined);
+				await handleRecordingResult(commands.restartRecording());
 			} finally {
 				setTeardownInFlight(false);
 			}
@@ -717,38 +702,6 @@ function InProgressRecordingInner() {
 		return Math.max(0, t);
 	};
 
-	const isMaxRecordingLimitEnabled = () => {
-		// Only enforce the limit on instant mode.
-		// We enforce it on studio mode when exporting.
-		return (
-			optionsQuery.rawOptions.mode === "instant" &&
-			// If the data is loaded and the user is not upgraded
-			authData()?.plan?.upgraded === false
-		);
-	};
-
-	let aborted = false;
-	createEffect(() => {
-		// Only a live session may trip the limit; in the other variants
-		// `time`/`start` are leftovers from a previous recording in this
-		// reused window and must never trigger a stop.
-		const variant = state().variant;
-		if (variant !== "recording" && variant !== "paused") return;
-		if (
-			isMaxRecordingLimitEnabled() &&
-			adjustedTime() > MAX_RECORDING_FOR_FREE &&
-			!aborted
-		) {
-			aborted = true;
-			stopRecording.mutate();
-		}
-	});
-
-	const remainingRecordingTime = () => {
-		if (MAX_RECORDING_FOR_FREE < adjustedTime()) return 0;
-		return MAX_RECORDING_FOR_FREE - adjustedTime();
-	};
-
 	const isInitializing = () => state().variant === "initializing";
 	const closeStartingBar = async () => {
 		setStartingDismissed(true);
@@ -866,12 +819,7 @@ function InProgressRecordingInner() {
 													</div>
 												}
 											>
-												<Show
-													when={isMaxRecordingLimitEnabled()}
-													fallback={formatTime(adjustedTime() / 1000)}
-												>
-													{formatTime(remainingRecordingTime() / 1000)}
-												</Show>
+												{formatTime(adjustedTime() / 1000)}
 											</Show>
 										</span>
 									</button>

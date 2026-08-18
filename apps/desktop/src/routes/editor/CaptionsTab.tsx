@@ -25,7 +25,6 @@ import {
 	defaultCaptionSettings,
 	type EditorCaptionSettings,
 } from "~/store/captions";
-import type { OrganizationBrandColorSwatch } from "~/utils/organization-branding";
 import { commands, events } from "~/utils/tauri";
 import IconCapChevronDown from "~icons/cap/chevron-down";
 import IconCapCircleCheck from "~icons/cap/circle-check";
@@ -239,9 +238,7 @@ function CaptionPresetPreview(props: { preset: CaptionStylePreset }) {
 	);
 }
 
-export function CaptionsTab(props: {
-	brandColorSwatches: OrganizationBrandColorSwatch[];
-}) {
+export function CaptionsTab() {
 	const { project, setProject, editorInstance, editorState, setEditorState } =
 		useEditorContext();
 
@@ -1232,7 +1229,6 @@ export function CaptionsTab(props: {
 									<span class="text-gray-11 text-sm">Text Color</span>
 									<HexColorInput
 										value={getSetting("color")}
-										brandColorSwatches={props.brandColorSwatches}
 										onChange={(value) => updateCaptionSetting("color", value)}
 									/>
 								</div>
@@ -1245,7 +1241,6 @@ export function CaptionsTab(props: {
 									<span class="text-gray-11 text-sm">Background Color</span>
 									<HexColorInput
 										value={getSetting("backgroundColor")}
-										brandColorSwatches={props.brandColorSwatches}
 										onChange={(value) =>
 											updateCaptionSetting("backgroundColor", value)
 										}
@@ -1379,7 +1374,6 @@ export function CaptionsTab(props: {
 									<span class="text-gray-11 text-sm">Highlight Color</span>
 									<HexColorInput
 										value={getSetting("highlightColor")}
-										brandColorSwatches={props.brandColorSwatches}
 										onChange={(value) =>
 											updateCaptionSetting("highlightColor", value)
 										}

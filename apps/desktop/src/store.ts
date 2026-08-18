@@ -8,7 +8,6 @@ import {
 	type RecordingStartSafetySettings,
 } from "~/utils/general-settings";
 import type {
-	AuthStore,
 	HotkeysStore,
 	PresetsStore,
 	RecordingSettingsStore,
@@ -32,16 +31,6 @@ export const teleprompterDefaults: TeleprompterStore = {
 	showCueMarkers: true,
 	mirror: false,
 	windowOpacityPercent: 92,
-};
-
-export type UserProfileStore = {
-	userId: string | null;
-	profile: {
-		name: string | null;
-		email: string | null;
-		imageUrl: string | null;
-	};
-	updatedAt: number;
 };
 
 export type MainWindowUIStore = {
@@ -101,9 +90,7 @@ function declareStore<T extends object>(name: string, defaults?: T) {
 }
 
 export const presetsStore = declareStore<PresetsStore>("presets");
-export const authStore = declareStore<AuthStore>("auth");
 export const automationsStore = declareStore<AutomationsStore>("automations");
-export const userProfileStore = declareStore<UserProfileStore>("user_profile");
 export const mainWindowUIStore = declareStore<MainWindowUIStore>(
 	"main_window_ui",
 	{ expanded: false },
@@ -124,7 +111,6 @@ export const recordingSettingsStore = declareStore<RecordingSettingsStore>(
 		cameraId: null,
 		mode: "instant",
 		systemAudio: false,
-		organizationId: null,
 		cameraDeviceSettings: {},
 		microphoneDeviceSettings: {},
 	},

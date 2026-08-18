@@ -1,5 +1,4 @@
 import { Button } from "@cap/ui-solid";
-import { createWritableMemo } from "@solid-primitives/memo";
 import {
 	isPermissionGranted,
 	requestPermission,
@@ -26,12 +25,7 @@ import themePreviewAuto from "~/assets/theme-previews/auto.jpg";
 import themePreviewDark from "~/assets/theme-previews/dark.jpg";
 import themePreviewLight from "~/assets/theme-previews/light.jpg";
 import { Input, Slider } from "~/routes/editor/ui";
-import {
-	authStore,
-	generalSettingsStore,
-	recordingStartSafetyStore,
-} from "~/store";
-import { clientEnv } from "~/utils/env";
+import { generalSettingsStore, recordingStartSafetyStore } from "~/store";
 import {
 	deriveGeneralSettings,
 	type GeneralSettingsStore,
@@ -128,8 +122,7 @@ const MAX_FPS_OPTIONS = [
 
 const DEFAULT_PROJECT_NAME_TEMPLATE =
 	"{target_name} ({target_kind}) {date} {time}";
-const FREE_INSTANT_MODE_MAX_RESOLUTION = 1280;
-const PRO_INSTANT_MODE_MAX_RESOLUTION = 1920;
+const DEFAULT_INSTANT_MODE_MAX_RESOLUTION = 1920;
 
 export default function GeneralSettings() {
 	const [stores] = createResource(() =>
@@ -169,7 +162,7 @@ function AppearanceSection(props: {
 	return (
 		<Section
 			title="Appearance"
-			description="Match Cap to your system theme or pick a fixed look."
+			description="Match Shelf to your system theme or pick a fixed look."
 		>
 			<SectionCard padded>
 				<div
@@ -237,15 +230,9 @@ function Inner(props: {
 	] = createSignal(
 		props.initialRecordingStartSafety.confirmBeforeRecordingWithoutMicrophone,
 	);
-	const auth = authStore.createQuery();
-	const hasCapPro = createMemo(() => {
-		const plan = auth.data?.plan;
-		return !!plan && (plan.upgraded || plan.manual);
-	});
-	const instantModeMaxResolution = createMemo(() =>
-		hasCapPro()
-			? (settings.instantModeMaxResolution ?? PRO_INSTANT_MODE_MAX_RESOLUTION)
-			: FREE_INSTANT_MODE_MAX_RESOLUTION,
+	const instantModeMaxResolution = createMemo(
+		() =>
+			settings.instantModeMaxResolution ?? DEFAULT_INSTANT_MODE_MAX_RESOLUTION,
 	);
 
 	createEffect(() => {
@@ -281,11 +268,6 @@ function Inner(props: {
 	};
 
 	onMount(() => {
-		commands
-			.updateAuthPlan()
-			.then(() => auth.refetch())
-			.catch(console.error);
-
 		let pending: string | null = null;
 		try {
 			pending = localStorage.getItem("cap.settings.scrollToSection");
@@ -525,18 +507,18 @@ function Inner(props: {
 				{ostype === "macos" && (
 					<Section
 						title="App"
-						description="Choose how Cap shows up on your system."
+						description="Choose how Shelf shows up on your system."
 					>
 						<SectionRows>
 							<ToggleSettingItem
 								label="Always show dock icon"
-								description="Keep Cap in the dock even when no windows are open."
+								description="Keep Shelf in the dock even when no windows are open."
 								value={!settings.hideDockIcon}
 								onChange={(v) => handleChange("hideDockIcon", !v)}
 							/>
 							<ToggleSettingItem
 								label="System notifications"
-								description="Show notifications for clipboard copies, saved files, and more. You may need to allow Cap in your system's notification settings."
+								description="Show notifications for clipboard copies, saved files, and more. You may need to allow Shelf in your system's notification settings."
 								value={!!settings.enableNotifications}
 								onChange={async (value) => {
 									if (value) {
@@ -553,15 +535,10 @@ function Inner(props: {
 					</Section>
 				)}
 
-				<CapProSection
-					hasCapPro={hasCapPro()}
+				<InstantModeSection
 					instantResolution={instantModeMaxResolution()}
 					onInstantResolutionChange={(value) =>
 						handleChange("instantModeMaxResolution", value)
-					}
-					autoOpenShareableLinks={!settings.disableAutoOpenLinks}
-					onAutoOpenShareableLinksChange={(v) =>
-						handleChange("disableAutoOpenLinks", !v)
 					}
 				/>
 
@@ -643,14 +620,6 @@ function Inner(props: {
 									value: "reopenRecordingWindow",
 								},
 							]}
-						/>
-						<ToggleSettingItem
-							label="Delete Instant recordings after upload"
-							description="Cap removes the local file once it has uploaded successfully."
-							value={settings.deleteInstantRecordingsAfterUpload ?? false}
-							onChange={(v) =>
-								handleChange("deleteInstantRecordingsAfterUpload", v)
-							}
 						/>
 						<ToggleSettingItem
 							label="Crash-recoverable recording"
@@ -781,31 +750,6 @@ function Inner(props: {
 						}
 					}}
 				/>
-
-				<ServerURLSetting
-					value={settings.serverUrl ?? clientEnv.VITE_SERVER_URL}
-					defaultValue={clientEnv.VITE_SERVER_URL}
-					onChange={async (v) => {
-						const url = new URL(v);
-						const origin = url.origin;
-
-						if (
-							!(await confirm(
-								`Are you sure you want to change the server URL to '${origin}'? You will need to sign in again.`,
-							))
-						)
-							return;
-
-						await authStore.set(undefined);
-						await commands.setServerUrl(origin);
-						handleChange("serverUrl", origin);
-					}}
-				/>
-
-				<TelemetryCard
-					value={settings.enableTelemetry !== false}
-					onChange={(v) => handleChange("enableTelemetry", v)}
-				/>
 			</SettingsPageContent>
 		</div>
 	);
@@ -874,7 +818,7 @@ function StorageSection(props: {
 	const isCustom = () => props.recordingsPath !== null;
 
 	return (
-		<Section title="Storage" description="Where Cap saves your recordings.">
+		<Section title="Storage" description="Where Shelf saves your recordings.">
 			<SectionCard padded>
 				<div class="flex flex-col gap-3">
 					<div class="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-3 border border-gray-4 min-w-0">
@@ -894,24 +838,6 @@ function StorageSection(props: {
 					</div>
 				</div>
 			</SectionCard>
-		</Section>
-	);
-}
-
-function TelemetryCard(props: {
-	value: boolean;
-	onChange: (value: boolean) => void;
-}) {
-	return (
-		<Section title="Privacy">
-			<SectionRows>
-				<ToggleSettingItem
-					label="Share anonymous telemetry"
-					description="Cap uses anonymous telemetry to improve reliability and fix bugs. We never collect recording contents, window titles, file paths, or personal information."
-					value={props.value}
-					onChange={props.onChange}
-				/>
-			</SectionRows>
 		</Section>
 	);
 }
@@ -947,14 +873,17 @@ function UpdatesSection(props: {
 	);
 
 	return (
-		<Section title="Updates" description="Choose which Cap builds you receive.">
+		<Section
+			title="Updates"
+			description="Choose which Shelf builds you receive."
+		>
 			<SectionCard>
 				<div class="flex flex-col gap-3 px-4 py-4">
 					<div class="flex justify-between items-start gap-4">
 						<div class="flex flex-col gap-0.5 min-w-0">
 							<p class="text-[13px] text-gray-12">Update channel</p>
 							<p class="text-xs leading-snug text-gray-10">
-								Which release channel Cap updates from.
+								Which release channel Shelf updates from.
 							</p>
 						</div>
 						<SegmentedControl
@@ -1016,14 +945,14 @@ type InstantResolutionTier = {
 };
 
 const INSTANT_RESOLUTION_TIERS: InstantResolutionTier[] = [
-	{ value: 1280, label: "720p", summary: "Smallest size, low bandwidth." },
+	{ value: 1280, label: "720p", summary: "Smallest files, fastest to write." },
 	{
 		value: 1920,
 		label: "1080p",
-		summary: "Recommended. Sharp on most networks.",
+		summary: "Recommended. Sharp on most displays.",
 	},
 	{ value: 2560, label: "1440p", summary: "More detail for desktop content." },
-	{ value: 3840, label: "4K", summary: "Max clarity. Needs fast upload." },
+	{ value: 3840, label: "4K", summary: "Max clarity. Largest files." },
 ];
 
 function SegmentedControl<T extends string | number>(props: {
@@ -1098,65 +1027,30 @@ function StudioQualitySubsection(props: {
 }
 
 function InstantQualitySetting(props: {
-	hasCapPro: boolean;
 	value: number;
 	onChange: (value: number) => void;
 }) {
-	const effectiveValue = createMemo(() =>
-		props.hasCapPro ? props.value : FREE_INSTANT_MODE_MAX_RESOLUTION,
-	);
 	const currentTier = createMemo(
 		() =>
-			INSTANT_RESOLUTION_TIERS.find((t) => t.value === effectiveValue()) ??
+			INSTANT_RESOLUTION_TIERS.find((t) => t.value === props.value) ??
 			INSTANT_RESOLUTION_TIERS[0],
 	);
-	const handleResolutionClick = async (value: number) => {
-		if (props.hasCapPro || value === FREE_INSTANT_MODE_MAX_RESOLUTION) {
-			props.onChange(value);
-			return;
-		}
-
-		toast.custom(
-			(t) => (
-				<div class="flex gap-3 items-center px-4 py-3 rounded-xl border shadow-lg bg-gray-1 border-gray-4 text-gray-12">
-					<p class="text-sm">
-						Upgrade to Cap Pro to record Instant Mode videos above 720p.
-					</p>
-					<button
-						type="button"
-						class="px-2.5 py-1 text-xs font-medium rounded-lg transition-colors bg-blue-9 text-white hover:bg-blue-10"
-						onClick={() => {
-							toast.dismiss(t.id);
-							void commands.showWindow("Upgrade");
-						}}
-					>
-						Upgrade
-					</button>
-				</div>
-			),
-			{ duration: 6000 },
-		);
-	};
 
 	return (
 		<SettingItem
 			id="settings-section-instant-quality"
 			label="Instant Mode quality"
-			description={
-				props.hasCapPro
-					? "Choose the maximum upload resolution for Instant recordings."
-					: "Instant recordings are locked to 720p. Cap Pro unlocks higher resolutions."
-			}
+			description="Choose the maximum resolution for Instant recordings."
 		>
 			<div class="flex flex-col items-end gap-1.5">
 				<div class="inline-flex p-0.5 rounded-lg border border-gray-3 bg-gray-3">
 					<For each={INSTANT_RESOLUTION_TIERS}>
 						{(tier) => {
-							const isSelected = () => effectiveValue() === tier.value;
+							const isSelected = () => props.value === tier.value;
 							return (
 								<button
 									type="button"
-									onClick={() => void handleResolutionClick(tier.value)}
+									onClick={() => props.onChange(tier.value)}
 									class={cx(
 										"px-3 py-1 text-xs font-medium rounded-md transition-[background-color,color,box-shadow]",
 										isSelected()
@@ -1178,30 +1072,19 @@ function InstantQualitySetting(props: {
 	);
 }
 
-function CapProSection(props: {
-	hasCapPro: boolean;
+function InstantModeSection(props: {
 	instantResolution: number;
 	onInstantResolutionChange: (value: number) => void;
-	autoOpenShareableLinks: boolean;
-	onAutoOpenShareableLinksChange: (value: boolean) => void;
 }) {
 	return (
 		<Section
-			title="Cap Pro"
-			description="Settings available with a Cap Pro license."
-			pro
+			title="Instant Mode"
+			description="Settings for fast, local Instant recordings."
 		>
 			<SectionRows>
 				<InstantQualitySetting
-					hasCapPro={props.hasCapPro}
 					value={props.instantResolution}
 					onChange={props.onInstantResolutionChange}
-				/>
-				<ToggleSettingItem
-					label="Auto-open shareable links"
-					description="Open the share link in your browser as soon as the upload finishes."
-					value={props.autoOpenShareableLinks}
-					onChange={props.onAutoOpenShareableLinksChange}
 				/>
 			</SectionRows>
 		</Section>
@@ -1222,62 +1105,6 @@ function QualitySection(props: {
 					value={props.studioQuality}
 					onChange={props.onStudioQualityChange}
 				/>
-			</SectionCard>
-		</Section>
-	);
-}
-
-function ServerURLSetting(props: {
-	value: string;
-	defaultValue: string;
-	onChange: (v: string) => void;
-}) {
-	const [value, setValue] = createWritableMemo(() => props.value);
-	const isDefaultValue = () =>
-		props.value === props.defaultValue && value() === props.defaultValue;
-	const resetToDefault = () => {
-		if (props.value === props.defaultValue) {
-			setValue(props.defaultValue);
-			return;
-		}
-
-		props.onChange(props.defaultValue);
-	};
-
-	return (
-		<Section
-			title="Self-host"
-			description="Only change this if you are running your own instance of Cap Web."
-		>
-			<SectionCard padded>
-				<div class="flex flex-col gap-3">
-					<label class="flex flex-col gap-1.5">
-						<span class="text-[13px] text-gray-12">Cap Server URL</span>
-						<Input
-							class="bg-gray-3"
-							value={value()}
-							onInput={(e) => setValue(e.currentTarget.value)}
-						/>
-					</label>
-					<div class="flex justify-end gap-2">
-						<Button
-							size="sm"
-							variant="gray"
-							disabled={isDefaultValue()}
-							onClick={resetToDefault}
-						>
-							Reset to Default
-						</Button>
-						<Button
-							size="sm"
-							variant="dark"
-							disabled={props.value === value()}
-							onClick={() => props.onChange(value())}
-						>
-							Update
-						</Button>
-					</div>
-				</div>
 			</SectionCard>
 		</Section>
 	);
@@ -1553,7 +1380,7 @@ function ExcludedWindowsCard(props: {
 			title="Excluded windows"
 			description={
 				props.isWindows
-					? "Hide windows from recordings. On Windows, only Cap-related windows can be excluded."
+					? "Hide windows from recordings. On Windows, only Shelf windows can be excluded."
 					: "Hide windows from recordings."
 			}
 			right={
@@ -1586,7 +1413,7 @@ function ExcludedWindowsCard(props: {
 							<IconLucideAlertTriangle class="mt-0.5 size-4 shrink-0 text-amber-11" />
 							<div class="min-w-0 flex-1 space-y-1">
 								<p class="text-xs font-medium text-amber-11">
-									Recommended Cap windows are not excluded
+									Recommended Shelf windows are not excluded
 								</p>
 								<p class="text-[10px] leading-snug text-amber-11">
 									Camera, settings, or recording windows can appear as black
