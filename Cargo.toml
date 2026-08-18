@@ -118,6 +118,8 @@ cidre = { git = "https://github.com/CapSoftware/cidre", rev = "bf84b67079a8" }
 # wgpu = { git = "https://github.com/gfx-rs/wgpu", rev = "cd41a6e32a6239b65d1cecbeccde6a43a100914a" }
 wgpu-hal = { path = "vendor/wgpu-hal" }
 tao = { path = "vendor/tao" }
+# Fork patch: non-fatal reads of the tauri window store, see vendor/tauri-runtime-wry/src/lib.rs
+tauri-runtime-wry = { path = "vendor/tauri-runtime-wry" }
 
 # https://github.com/CapSoftware/reqwest/commit/9b5ecbd5210a9510fde766015cabb724c1e70d2e
 reqwest = { git = "https://github.com/CapSoftware/reqwest", rev = "9b5ecbd5210a9510fde766015cabb724c1e70d2e" }

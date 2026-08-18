@@ -620,6 +620,18 @@ function Inner(props: {
 							]}
 						/>
 						<SelectSettingItem
+							label="After a screenshot"
+							description="What happens once you take a screenshot."
+							value={settings.postScreenshotBehaviour ?? "openEditor"}
+							onChange={(value) =>
+								handleChange("postScreenshotBehaviour", value)
+							}
+							options={[
+								{ text: "Open editor", value: "openEditor" },
+								{ text: "Show in overlay", value: "showOverlay" },
+							]}
+						/>
+						<SelectSettingItem
 							label="After deleting a recording"
 							description="Whether the recording window should reopen."
 							value={settings.postDeletionBehaviour ?? "doNothing"}

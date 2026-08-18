@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "df61fac2b50d4027e333d0287030b1b6cb411caf"
+  },
+  "path_in_vcs": "crates/tauri-runtime-wry"
+}

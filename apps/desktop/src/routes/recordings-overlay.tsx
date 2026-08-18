@@ -159,6 +159,21 @@ export default function () {
 									queryFn: () => commands.getRecordingMeta(media.path, type),
 								}));
 
+								const dragOut = (e: MouseEvent) => {
+									if (isRecording || e.button !== 0) return;
+									if (
+										e.target instanceof Element &&
+										e.target.closest("button, a, input")
+									)
+										return;
+
+									commands
+										.startFileDrag(media.path)
+										.catch((error) =>
+											console.error("Failed to start drag", error),
+										);
+								};
+
 								return (
 									<Suspense>
 										<div
@@ -166,7 +181,9 @@ export default function () {
 											style={{ "border-color": "rgba(255, 255, 255, 0.1)" }}
 											class={cx(
 												"overflow-hidden relative rounded-xl shadow-sm transition-all duration-200 w-[260px] h-[150px] bg-gray-12 border group",
+												!isRecording && "cursor-grab active:cursor-grabbing",
 											)}
+											onMouseDown={dragOut}
 										>
 											<div
 												class={cx(
@@ -535,20 +552,43 @@ function createFakeWindowBounds(
 ) {
 	const bounds = createElementBounds(ref);
 
-	createEffect(() => {
+	const publish = (
+		left: number,
+		top: number,
+		width: number,
+		height: number,
+	) => {
 		commands.setFakeWindowBounds(key(), {
-			position: {
-				x: bounds.left ?? 0,
-				y: bounds.top ?? 0,
-			},
-			size: {
-				width: bounds.width ?? 0,
-				height: bounds.height ?? 0,
-			},
+			position: { x: left, y: top },
+			size: { width, height },
 		});
+	};
+
+	createEffect(() => {
+		publish(
+			bounds.left ?? 0,
+			bounds.top ?? 0,
+			bounds.width ?? 0,
+			bounds.height ?? 0,
+		);
 	});
 
+	// A card that mounted while the overlay window was hidden measures as zero and never resizes
+	// afterwards, which would leave the whole overlay click-through. Re-measure once it is shown.
+	const remeasure = () => {
+		if (document.hidden) return;
+		requestAnimationFrame(() => {
+			const element = ref();
+			if (!element) return;
+			const rect = element.getBoundingClientRect();
+			publish(rect.left, rect.top, rect.width, rect.height);
+		});
+	};
+
+	document.addEventListener("visibilitychange", remeasure);
+
 	onCleanup(() => {
+		document.removeEventListener("visibilitychange", remeasure);
 		commands.removeFakeWindow(key());
 	});
 }

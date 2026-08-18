@@ -67,7 +67,10 @@ use crate::{
     audio::AppSounds,
     auth::AuthStore,
     create_screenshot, create_screenshot_source_from_segments,
-    general_settings::{GeneralSettingsStore, PostDeletionBehaviour, PostStudioRecordingBehaviour},
+    general_settings::{
+        GeneralSettingsStore, PostDeletionBehaviour, PostScreenshotBehaviour,
+        PostStudioRecordingBehaviour,
+    },
     open_external_link,
     presets::PresetsStore,
     thumbnails::*,
@@ -3020,6 +3023,20 @@ pub async fn take_screenshot(
 
         match encode_result {
             Ok(Ok(())) => {
+                if crate::automation::screenshot_behaviour(&app_handle, &automation_target)
+                    == Some(PostScreenshotBehaviour::ShowOverlay)
+                {
+                    let overlay_was_open =
+                        CapWindowId::RecordingsOverlay.get(&app_handle).is_some();
+                    let _ = ShowCapWindow::RecordingsOverlay.show(&app_handle).await;
+
+                    // The overlay only registers its event listener once its webview has mounted,
+                    // so a freshly created window would miss the event that follows.
+                    if !overlay_was_open {
+                        tokio::time::sleep(Duration::from_millis(1000)).await;
+                    }
+                }
+
                 let _ = NewScreenshotAdded {
                     path: image_path_for_emit.clone(),
                 }
