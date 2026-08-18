@@ -1029,19 +1029,19 @@ impl CapWindowId {
 
     pub fn title(&self) -> String {
         match self {
-            Self::Settings => "Cap Settings".to_string(),
-            Self::WindowCaptureOccluder { .. } => "Cap Window Capture Occluder".to_string(),
-            Self::CaptureArea => "Cap Capture Area".to_string(),
-            Self::RecordingControls => "Cap Recording Controls".to_string(),
-            Self::Editor { .. } => "Cap Editor".to_string(),
-            Self::ScreenshotEditor { .. } => "Cap Screenshot Editor".to_string(),
-            Self::ModeSelect => "Cap Mode Selection".to_string(),
-            Self::Onboarding => "Welcome to Cap".to_string(),
-            Self::Camera => "Cap Camera".to_string(),
-            Self::RecordingsOverlay => "Cap Recordings Overlay".to_string(),
-            Self::TargetSelectOverlay { .. } => "Cap Target Select".to_string(),
-            Self::Teleprompter => "Cap Teleprompter".to_string(),
-            _ => "Cap".to_string(),
+            Self::Settings => "Shelf Settings".to_string(),
+            Self::WindowCaptureOccluder { .. } => "Shelf Window Capture Occluder".to_string(),
+            Self::CaptureArea => "Shelf Capture Area".to_string(),
+            Self::RecordingControls => "Shelf Recording Controls".to_string(),
+            Self::Editor { .. } => "Shelf Editor".to_string(),
+            Self::ScreenshotEditor { .. } => "Shelf Screenshot Editor".to_string(),
+            Self::ModeSelect => "Shelf Mode Selection".to_string(),
+            Self::Onboarding => "Welcome to Shelf".to_string(),
+            Self::Camera => "Shelf Camera".to_string(),
+            Self::RecordingsOverlay => "Shelf Recordings Overlay".to_string(),
+            Self::TargetSelectOverlay { .. } => "Shelf Target Select".to_string(),
+            Self::Teleprompter => "Shelf Teleprompter".to_string(),
+            _ => "Shelf".to_string(),
         }
     }
 

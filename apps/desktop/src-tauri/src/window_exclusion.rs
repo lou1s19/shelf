@@ -282,10 +282,10 @@ mod tests {
     #[test]
     fn instant_mode_removes_camera_exclusion() {
         let exclusions = vec![
-            title_exclusion("Cap"),
+            title_exclusion("Shelf"),
             title_exclusion("Cap Camera"),
-            title_exclusion("Cap Settings"),
-            title_exclusion("Cap Recording Controls"),
+            title_exclusion("Shelf Settings"),
+            title_exclusion("Shelf Recording Controls"),
         ];
 
         let filtered = filter_for_instant_mode(exclusions, "Cap Camera");
@@ -304,18 +304,18 @@ mod tests {
         assert!(
             filtered
                 .iter()
-                .any(|e| e.window_title.as_deref() == Some("Cap Settings"))
+                .any(|e| e.window_title.as_deref() == Some("Shelf Settings"))
         );
         assert!(
             filtered
                 .iter()
-                .any(|e| e.window_title.as_deref() == Some("Cap Recording Controls"))
+                .any(|e| e.window_title.as_deref() == Some("Shelf Recording Controls"))
         );
     }
 
     #[test]
     fn instant_mode_noop_when_camera_absent() {
-        let exclusions = vec![title_exclusion("Cap"), title_exclusion("Cap Settings")];
+        let exclusions = vec![title_exclusion("Shelf"), title_exclusion("Shelf Settings")];
 
         let filtered = filter_for_instant_mode(exclusions, "Cap Camera");
         assert_eq!(filtered.len(), 2);
@@ -332,7 +332,7 @@ mod tests {
         let exclusions = vec![title_exclusion("Cap Camera")];
 
         assert!(matches_window_title(&exclusions, "Cap Camera"));
-        assert!(!matches_window_title(&exclusions, "Cap Recording Controls"));
+        assert!(!matches_window_title(&exclusions, "Shelf Recording Controls"));
     }
 
     #[test]

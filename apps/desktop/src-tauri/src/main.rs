@@ -70,12 +70,12 @@ fn main() {
         let path = dirs::home_dir()
             .unwrap()
             .join("Library/Logs")
-            .join("so.cap.desktop");
+            .join("de.shelf.desktop");
 
         #[cfg(not(target_os = "macos"))]
         let path = dirs::data_local_dir()
             .unwrap()
-            .join("so.cap.desktop")
+            .join("de.shelf.desktop")
             .join("logs");
 
         path
@@ -86,7 +86,7 @@ fn main() {
         eprintln!("Failed to create logs directory: {e}");
     });
 
-    let info_file_appender = tracing_appender::rolling::daily(&logs_dir, "cap-desktop.log");
+    let info_file_appender = tracing_appender::rolling::daily(&logs_dir, "shelf.log");
     let (info_file_writer, _info_logger_guard) = tracing_appender::non_blocking(info_file_appender);
 
     let errors_file_appender =

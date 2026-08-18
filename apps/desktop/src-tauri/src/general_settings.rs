@@ -107,18 +107,18 @@ impl MainWindowRecordingStartBehaviour {
     }
 }
 
-// NOTE: Do not add "Cap Target Select" here — on Windows, WDA_EXCLUDEFROMCAPTURE applied to that
+// NOTE: Do not add "Shelf Target Select" here — on Windows, WDA_EXCLUDEFROMCAPTURE applied to that
 // hidden window causes it to reappear as a ghost overlay after recording ends.
 const DEFAULT_EXCLUDED_WINDOW_TITLES: &[&str] = &[
-    "Cap",
-    "Cap Settings",
-    "Cap Recording Controls",
-    "Cap Camera",
-    "Cap Window Capture Occluder",
-    "Cap Capture Area",
-    "Cap Mode Selection",
-    "Cap Recordings Overlay",
-    "Cap Teleprompter",
+    "Shelf",
+    "Shelf Settings",
+    "Shelf Recording Controls",
+    "Shelf Camera",
+    "Shelf Window Capture Occluder",
+    "Shelf Capture Area",
+    "Shelf Mode Selection",
+    "Shelf Recordings Overlay",
+    "Shelf Teleprompter",
 ];
 
 pub fn default_excluded_windows() -> Vec<WindowExclusion> {
