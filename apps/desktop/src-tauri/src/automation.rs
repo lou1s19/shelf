@@ -615,6 +615,12 @@ pub fn screenshot_behaviour(
 }
 
 pub fn should_open_screenshot_editor(app: &AppHandle, target: &ScreenCaptureTarget) -> bool {
+    // An area screenshot to text capture never opens the editor, and consuming the request here
+    // makes sure the flag is cleared no matter how the OCR itself turns out.
+    if app.state::<crate::hotkeys::PendingOcrCapture>().take() {
+        return false;
+    }
+
     screenshot_behaviour(app, target) == Some(PostScreenshotBehaviour::OpenEditor)
 }
 

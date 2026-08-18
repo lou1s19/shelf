@@ -2536,6 +2536,10 @@ pub async fn take_screenshot(
     let general_settings = GeneralSettingsStore::get(&app).ok().flatten();
     let general_settings = general_settings.as_ref();
 
+    // Read without consuming: the frontend still asks whether to open the editor after this
+    // command returns, and that call is what clears the request.
+    let ocr_requested = app.state::<crate::hotkeys::PendingOcrCapture>().is_active();
+
     let project_name = format_project_name(
         general_settings
             .and_then(|s| s.default_project_name_template.clone())
@@ -2665,6 +2669,7 @@ pub async fn take_screenshot(
     };
     let image_path_for_emit = image_path.clone();
     let image_path_for_write = image_path.clone();
+    let project_path_for_ocr = project_file_path.clone();
     let app_handle = app.clone();
     let pending_state = PendingScreenshots(pending_screenshots.0.clone());
 
@@ -2693,6 +2698,16 @@ pub async fn take_screenshot(
 
         match encode_result {
             Ok(Ok(())) => {
+                if ocr_requested {
+                    recognize_screenshot_text_to_clipboard(
+                        &app_handle,
+                        &image_path_for_emit,
+                        &project_path_for_ocr,
+                    )
+                    .await;
+                    return;
+                }
+
                 if crate::automation::screenshot_behaviour(&app_handle, &automation_target)
                     == Some(PostScreenshotBehaviour::ShowOverlay)
                 {
@@ -2741,6 +2756,50 @@ pub async fn take_screenshot(
     });
 
     Ok(image_path)
+}
+
+/// Copies the text found in a freshly captured screenshot to the clipboard. The capture only
+/// existed to feed the text recognition, so its project directory is removed afterwards.
+async fn recognize_screenshot_text_to_clipboard(
+    app: &AppHandle,
+    image_path: &Path,
+    project_path: &Path,
+) {
+    use crate::notifications;
+    use clipboard_rs::Clipboard;
+
+    let text = match crate::screenshot_editor::recognize_text_from_image_path(image_path).await {
+        Ok(text) if !text.trim().is_empty() => text,
+        Ok(_) => {
+            error!("No text recognized in screenshot");
+            notifications::send_notification(
+                app,
+                notifications::NotificationType::TextRecognitionFailed,
+            );
+            return;
+        }
+        Err(e) => {
+            error!("Failed to recognize text in screenshot: {e}");
+            notifications::send_notification(
+                app,
+                notifications::NotificationType::TextRecognitionFailed,
+            );
+            return;
+        }
+    };
+
+    let clipboard = app.state::<Arc<tokio::sync::RwLock<crate::ClipboardContext>>>();
+    if let Err(e) = clipboard.write().await.set_text(text) {
+        error!("Failed to copy recognized text to clipboard: {e}");
+        notifications::send_notification(app, notifications::NotificationType::TextCopyFailed);
+        return;
+    }
+
+    if let Err(e) = std::fs::remove_dir_all(project_path) {
+        error!("Failed to remove screenshot project after text recognition: {e}");
+    }
+
+    notifications::send_notification(app, notifications::NotificationType::TextCopiedToClipboard);
 }
 
 async fn handle_recording_end(

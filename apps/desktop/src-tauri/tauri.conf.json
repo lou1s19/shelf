@@ -47,7 +47,7 @@
 	},
 	"bundle": {
 		"active": true,
-		"createUpdaterArtifacts": true,
+		"createUpdaterArtifacts": false,
 		"targets": "all",
 		"externalBin": [
 			"binaries/cap-muxer",
@@ -124,7 +124,7 @@
 				"ext": [
 					"cap"
 				],
-				"name": "Cap Project",
+				"name": "Shelf Project",
 				"mimeType": "application/x-cap-project",
 				"role": "Editor"
 			}

@@ -4855,6 +4855,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             app.manage(http_client::HttpClient::default());
             app.manage(http_client::RetryableHttpClient::default());
             app.manage(PendingScreenshots::default());
+            app.manage(hotkeys::PendingOcrCapture::default());
             app.manage(FinalizingRecordings::default());
             app.manage(updates::UpdatesState::default());
             updates::spawn_background_loop(app.clone());

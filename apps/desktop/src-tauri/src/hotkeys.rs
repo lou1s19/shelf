@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
@@ -66,6 +67,7 @@ pub enum HotkeyAction {
     ScreenshotDisplay,
     ScreenshotWindow,
     ScreenshotArea,
+    ScreenshotAreaOcr,
     #[serde(other)]
     Other,
 }
@@ -89,6 +91,41 @@ impl HotkeysStore {
 pub struct OnEscapePress;
 
 pub type HotkeysState = Mutex<HotkeysStore>;
+
+/// An area screenshot to text request only counts for this long, so an abandoned area
+/// selection can't turn the next ordinary screenshot into an OCR capture.
+const PENDING_OCR_CAPTURE_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Tracks whether the pending area capture was started by the OCR hotkey.
+#[derive(Default)]
+pub struct PendingOcrCapture(Mutex<Option<Instant>>);
+
+impl PendingOcrCapture {
+    fn mark(&self) {
+        *self.0.lock().unwrap() = Some(Instant::now());
+    }
+
+    /// Whether an OCR request is still pending, without consuming it.
+    pub fn is_active(&self) -> bool {
+        let mut requested_at = self.0.lock().unwrap();
+
+        match *requested_at {
+            Some(at) if at.elapsed() < PENDING_OCR_CAPTURE_TIMEOUT => true,
+            Some(_) => {
+                *requested_at = None;
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Clears the pending request and reports whether it was still valid.
+    pub fn take(&self) -> bool {
+        let requested_at = self.0.lock().unwrap().take();
+
+        requested_at.is_some_and(|at| at.elapsed() < PENDING_OCR_CAPTURE_TIMEOUT)
+    }
+}
 
 const RECORDING_START_SAFETY_STORE_KEY: &str = "recording_start_safety";
 
@@ -225,6 +262,20 @@ pub fn init(app: &AppHandle) {
     app.manage(Mutex::new(store));
 }
 
+fn open_area_screenshot_picker(app: &AppHandle) -> Result<(), String> {
+    RecordingSettingsStore::set_mode(app, cap_recording::RecordingMode::Screenshot)
+        .map_err(|e| format!("Failed to set screenshot mode: {e}"))?;
+
+    tray::update_tray_icon_for_mode(app, cap_recording::RecordingMode::Screenshot);
+
+    let _ = RequestOpenRecordingPicker {
+        target_mode: Some(RecordingTargetMode::Area),
+    }
+    .emit(app);
+
+    Ok(())
+}
+
 async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), String> {
     match action {
         HotkeyAction::StartStudioRecording => {
@@ -320,17 +371,11 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
                 Err(e) => Err(format!("Failed to take screenshot: {e}")),
             }
         }
-        HotkeyAction::ScreenshotArea => {
-            RecordingSettingsStore::set_mode(&app, cap_recording::RecordingMode::Screenshot)
-                .map_err(|e| format!("Failed to set screenshot mode: {e}"))?;
+        HotkeyAction::ScreenshotArea => open_area_screenshot_picker(&app),
+        HotkeyAction::ScreenshotAreaOcr => {
+            app.state::<PendingOcrCapture>().mark();
 
-            tray::update_tray_icon_for_mode(&app, cap_recording::RecordingMode::Screenshot);
-
-            let _ = RequestOpenRecordingPicker {
-                target_mode: Some(RecordingTargetMode::Area),
-            }
-            .emit(&app);
-            Ok(())
+            open_area_screenshot_picker(&app)
         }
         HotkeyAction::Other => Ok(()),
     }

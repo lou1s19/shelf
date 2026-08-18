@@ -599,7 +599,7 @@ function Inner(props: {
 						<SelectSettingItem
 							label="After a screenshot"
 							description="What happens once you take a screenshot."
-							value={settings.postScreenshotBehaviour ?? "openEditor"}
+							value={settings.postScreenshotBehaviour ?? "showOverlay"}
 							onChange={(value) =>
 								handleChange("postScreenshotBehaviour", value)
 							}

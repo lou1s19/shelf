@@ -23,8 +23,10 @@ pub enum PostStudioRecordingBehaviour {
 #[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum PostScreenshotBehaviour {
-    #[default]
     OpenEditor,
+    /// Default: a screenshot parks as a card in the overlay instead of taking
+    /// over the screen with the editor.
+    #[default]
     ShowOverlay,
 }
 
@@ -310,7 +312,7 @@ impl Default for GeneralSettingsStore {
             last_version: None,
             window_transparency: false,
             post_studio_recording_behaviour: PostStudioRecordingBehaviour::OpenEditor,
-            post_screenshot_behaviour: PostScreenshotBehaviour::OpenEditor,
+            post_screenshot_behaviour: PostScreenshotBehaviour::ShowOverlay,
             main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour::Close,
             custom_cursor_capture: cap_recording::DEFAULT_CUSTOM_CURSOR_CAPTURE,
             recording_countdown: Some(3),

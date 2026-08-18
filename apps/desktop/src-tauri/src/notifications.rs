@@ -11,6 +11,9 @@ pub enum NotificationType {
     ScreenshotCopiedToClipboard,
     ScreenshotSaveFailed,
     ScreenshotCopyFailed,
+    TextCopiedToClipboard,
+    TextCopyFailed,
+    TextRecognitionFailed,
 }
 
 impl NotificationType {
@@ -46,6 +49,21 @@ impl NotificationType {
                 "Unable to copy screenshot to clipboard. Please try again",
                 true,
             ),
+            NotificationType::TextCopiedToClipboard => (
+                "Text Copied",
+                "Recognized text copied to clipboard",
+                false,
+            ),
+            NotificationType::TextCopyFailed => (
+                "Copy Failed",
+                "Unable to copy text to clipboard. Please try again",
+                true,
+            ),
+            NotificationType::TextRecognitionFailed => (
+                "No Text Found",
+                "No text was recognized in the screenshot",
+                true,
+            ),
         }
     }
 }
@@ -74,6 +92,9 @@ pub fn send_notification(app: &tauri::AppHandle, notification_type: Notification
             | NotificationType::ScreenshotCopiedToClipboard
             | NotificationType::ScreenshotSaveFailed
             | NotificationType::ScreenshotCopyFailed
+            | NotificationType::TextCopiedToClipboard
+            | NotificationType::TextCopyFailed
+            | NotificationType::TextRecognitionFailed
     );
 
     if !skip_sound {

@@ -25,7 +25,13 @@ describe("general-settings", () => {
 
 	it("normalizes transcription hints from a list", () => {
 		expect(
-			normalizeTranscriptionHints([" Shelf ", "", "TypeScript", "Shelf", "GitHub"]),
+			normalizeTranscriptionHints([
+				" Shelf ",
+				"",
+				"TypeScript",
+				"Shelf",
+				"GitHub",
+			]),
 		).toEqual(["Shelf", "TypeScript", "GitHub"]);
 	});
 
