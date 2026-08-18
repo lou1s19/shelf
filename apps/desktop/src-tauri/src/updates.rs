@@ -1,7 +1,7 @@
 //! Shelf has no update feed.
 //!
-//! Upstream pulled releases from Cap's CrabNebula CDN. Leaving that in place
-//! would have replaced Shelf with Cap on the next release, so the whole check
+//! Upstream pulled releases from a hosted CDN. Leaving that in place
+//! would have replaced Shelf with the upstream app on the next release, so the check
 //! is gone. The commands stay because the settings screen calls them; they
 //! report "no update available" and reach no network.
 //!

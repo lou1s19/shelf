@@ -943,7 +943,7 @@
 	background: var(--macos-settings-control-fill);
 	/* Override the skeuomorphic `gray-button-shadow` (inset top bevel) and
 	   `gray-button-border` (heavy `border-gray-8`) utility classes baked into
-	   Cap UI's gray/white/outline variants — Tahoe surfaces are flat and use
+	   The UI package's gray/white/outline variants — Tahoe surfaces are flat and use
 	   the standard --macos-settings-border hairline, not a bevel + dark line. */
 	box-shadow: none;
 	border-color: var(--macos-settings-border);
@@ -964,7 +964,7 @@
 /* Blue/primary/dark buttons need an explicit white text color. WebKit doesn't
    reliably resolve `AccentColorText` to a contrasting colour inside a
    WKWebView (we've seen it fall back to black on top of a blue background).
-   Cap UI's `blue` variant ships with `text-white` anyway, so hardcoding here
+   The UI package's `blue` variant ships with `text-white` anyway, so hardcoding here
    matches that intent and keeps text legible regardless of the user's
    system accent. */
 [data-macos-native-material="settings"] button[data-variant="primary"],

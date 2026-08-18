@@ -26,8 +26,6 @@ struct RecordingRow {
     recording_type: &'static str,
     output_path: PathBuf,
     output_exists: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sharing_link: Option<String>,
 }
 
 fn recording_type(meta: &RecordingMeta) -> &'static str {
@@ -68,7 +66,6 @@ fn collect_rows(dir: &Path) -> Result<Vec<RecordingRow>, String> {
                 output_exists: output_path.exists(),
                 recording_type: recording_type(&meta),
                 name: meta.pretty_name,
-                sharing_link: meta.sharing.map(|s| s.link),
                 output_path,
                 path,
             }
@@ -98,9 +95,6 @@ pub fn list(dir: Option<PathBuf>, format: OutputFormat) -> Result<(), String> {
                     row.recording_type,
                     row.path.display()
                 );
-                if let Some(link) = &row.sharing_link {
-                    println!("  link: {link}");
-                }
             }
             Ok(())
         }

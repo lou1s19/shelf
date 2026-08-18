@@ -292,7 +292,7 @@ fn apply_liquid_glass_background_inner(
         // Pin the glass to its "always-active" representation so it keeps re-rendering
         // the live backdrop regardless of which window currently has key state. The
         // default for an NSVisualEffectView-derived view is FollowsWindowActiveState,
-        // which dims the material whenever another Cap window (camera, settings, etc.)
+        // which dims the material whenever another app window (camera, settings, etc.)
         // becomes key and masks the backdrop reactivity that's the whole point of
         // Liquid Glass. The always-active state is private SPI, so we probe multiple
         // state knobs (`setState:`, `setActive:`) instead of assuming one inheritance
@@ -324,7 +324,7 @@ fn apply_liquid_glass_background_inner(
         // Deliberately DO NOT disable window/WKWebView occlusion detection here.
         // Earlier builds called the private `_setWindowOcclusionDetectionEnabled:` /
         // `_setWebViewWindowOcclusionDetectionEnabled:` SPI so the glass backdrop kept
-        // sampling while Cap was unfocused, but an occlusion-suppressed surface is one
+        // sampling while the app was unfocused, but an occlusion-suppressed surface is one
         // WindowServer can never quiesce — on macOS 26 that wedged the compositor when
         // the window was later hidden or the app quit (often after sleep/lid-close),
         // watchdog-stalling WindowServer and soft-restarting the whole login session.

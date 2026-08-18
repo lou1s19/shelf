@@ -978,7 +978,7 @@ export function CaptionsTab() {
 												</div>
 												<p class="text-xs leading-relaxed text-gray-10">
 													{downloadMessage() ||
-														"Keep Cap open while the model downloads. Editor reloads will reconnect automatically."}
+														"Keep Shelf open while the model downloads. Editor reloads will reconnect automatically."}
 												</p>
 											</div>
 										</Show>
@@ -1161,7 +1161,7 @@ export function CaptionsTab() {
 										/>
 									</div>
 									<p class="text-xs text-gray-10">
-										This is the first version of captions in Cap. Active word
+										This is the first version of captions in Shelf. Active word
 										highlighting may be inaccurate in some situations. We're
 										working on a fix for this and it will be released in
 										upcoming versions.

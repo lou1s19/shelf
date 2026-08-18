@@ -75,8 +75,6 @@ import {
 	type UpdateCheckResult,
 } from "~/utils/tauri";
 import { openTeleprompter } from "~/utils/teleprompter";
-import IconCapLogoFull from "~icons/cap/logo-full";
-import IconCapLogoFullDark from "~icons/cap/logo-full-dark";
 import IconLucideAppWindowMac from "~icons/lucide/app-window-mac";
 import IconLucideArrowLeft from "~icons/lucide/arrow-left";
 import IconLucideBug from "~icons/lucide/bug";
@@ -3202,13 +3200,7 @@ function Page() {
 				</div>
 			</WindowChromeHeader>
 			<Show when={!activeMenu()}>
-				<div class="flex items-center justify-between mt-[16px] mb-[6px]">
-					<div class="flex items-center space-x-1">
-						<div class="*:w-[92px] *:h-auto text-(--text-primary)">
-							<IconCapLogoFullDark class="hidden dark:block" />
-							<IconCapLogoFull class="block dark:hidden" />
-						</div>
-					</div>
+				<div class="flex items-center justify-end mt-[16px] mb-[6px]">
 					<Mode
 						onInfoClick={() => {
 							setModeInfoMenuOpen(true);

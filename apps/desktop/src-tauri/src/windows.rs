@@ -3265,13 +3265,13 @@ fn position_traffic_lights_impl(
 // Capture exclusion (WDA_EXCLUDEFROMCAPTURE / NSWindowSharingType::None) also hides
 // the window from "capture-based" displays such as virtual/indirect/dummy-HDMI or
 // mirrored monitors, making it invisible and unreachable. We therefore only protect
-// Cap's own windows while a recording is actually active, which is the only time the
+// the app's own windows while a recording is actually active, which is the only time the
 // exclusion is meaningful.
 //
 // On desktops that are themselves delivered through a capture-based stream (Shadow
 // and other cloud PCs, RDP, VMs), even recording-gated exclusion hides the recording
 // controls from the user and trips DRM detectors (Shadow error S:102), so exclusion
-// is skipped entirely there — Cap's windows then appear in recordings, which is the
+// is skipped entirely there — the app's windows then appear in recordings, which is the
 // lesser evil. Overridable via the CAP_WINDOW_CAPTURE_EXCLUSION env var.
 #[cfg(target_os = "windows")]
 pub fn capture_exclusion_hides_ui() -> bool {
@@ -3287,7 +3287,7 @@ pub fn capture_exclusion_hides_ui() -> bool {
                 %reason,
                 "Skipping window capture exclusion: this desktop is viewed through a \
                  capture-based stream, so excluded windows would be invisible to the user. \
-                 Cap's windows will appear in recordings."
+                 the app's windows will appear in recordings."
             ),
             None => info!("Window capture exclusion re-enabled"),
         }

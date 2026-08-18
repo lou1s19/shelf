@@ -177,8 +177,6 @@ pub struct GeneralSettingsStore {
     #[serde(default)]
     pub theme: AppTheme,
     #[serde(default)]
-    pub commercial_license: Option<CommercialLicense>,
-    #[serde(default)]
     pub last_version: Option<String>,
     #[serde(default)]
     pub window_transparency: bool,
@@ -298,15 +296,6 @@ fn default_transcription_hints() -> Vec<String> {
     ]
 }
 
-#[derive(Serialize, Deserialize, Type, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CommercialLicense {
-    license_key: String,
-    expiry_date: Option<f64>,
-    refresh: f64,
-    activated_on: f64,
-}
-
 impl Default for GeneralSettingsStore {
     fn default() -> Self {
         Self {
@@ -318,7 +307,6 @@ impl Default for GeneralSettingsStore {
             disable_auto_open_links: false,
             has_completed_startup: false,
             theme: AppTheme::System,
-            commercial_license: None,
             last_version: None,
             window_transparency: false,
             post_studio_recording_behaviour: PostStudioRecordingBehaviour::OpenEditor,
@@ -595,7 +583,7 @@ mod tests {
     #[test]
     fn appends_missing_default_excluded_windows() {
         let mut excluded_windows = vec![
-            title_exclusion("Cap"),
+            title_exclusion("Shelf"),
             WindowExclusion {
                 bundle_identifier: None,
                 owner_name: Some("Preview".to_string()),

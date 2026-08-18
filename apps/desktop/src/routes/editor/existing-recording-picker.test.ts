@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { getExistingRecordingPickerOptions } from "./existing-recording-picker";
 
 describe("existing recording picker", () => {
-	it("selects Cap project directories on Windows", () => {
+	it("selects project directories on Windows", () => {
 		expect(
-			getExistingRecordingPickerOptions("windows", "C:\\Cap\\recordings"),
+			getExistingRecordingPickerOptions("windows", "C:\\Shelf\\recordings"),
 		).toEqual({
-			defaultPath: "C:\\Cap\\recordings",
+			defaultPath: "C:\\Shelf\\recordings",
 			directory: true,
 			multiple: false,
 		});
@@ -17,10 +17,10 @@ describe("existing recording picker", () => {
 		"preserves the filtered file picker on %s",
 		(platform) => {
 			expect(
-				getExistingRecordingPickerOptions(platform, "/Cap/recordings"),
+				getExistingRecordingPickerOptions(platform, "/Shelf/recordings"),
 			).toEqual({
-				defaultPath: "/Cap/recordings",
-				filters: [{ name: "Cap Recording", extensions: ["cap"] }],
+				defaultPath: "/Shelf/recordings",
+				filters: [{ name: "Shelf Recording", extensions: ["cap"] }],
 				multiple: false,
 			});
 		},

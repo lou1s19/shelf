@@ -43,7 +43,7 @@ const VIRTUAL_DISPLAY_MARKERS: &[&str] = &[
 ];
 
 /// Returns `Some(reason)` when this desktop is being viewed through a
-/// capture-based stream and window capture exclusion would hide Cap's
+/// capture-based stream and window capture exclusion would hide the app's
 /// windows from the user themselves.
 pub fn capture_streamed_display_reason() -> Option<String> {
     let override_value = std::env::var(ENV_OVERRIDE)

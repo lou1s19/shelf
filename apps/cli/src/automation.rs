@@ -1,7 +1,7 @@
 //! Runs Shelf automation rules from the CLI, sharing the exact rule model and engine the desktop app
 //! uses (`cap_automation`). Rules are authored in Shelf and persisted to its tauri-plugin-store
-//! file; the CLI reads that file directly (same approach as `credentials.rs`) so a rule like
-//! "on screenshot, save to ~/Shots" is honored whether the capture came from the app or `cap`.
+//! file; the CLI reads that file directly so a rule like "on screenshot, save to ~/Shots" is
+//! honored whether the capture came from the app or `cap`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

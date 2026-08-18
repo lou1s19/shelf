@@ -482,7 +482,7 @@ fn build_macos_app_menu(app_handle: &AppHandle) -> tauri::Result<Menu<tauri::Wry
         .product_name
         .as_ref()
         .map(|name| format!("Quit {name}"))
-        .unwrap_or_else(|| "Quit Cap".to_string());
+        .unwrap_or_else(|| "Quit Shelf".to_string());
 
     let window_menu = Submenu::with_id_and_items(
         app_handle,
@@ -4355,7 +4355,7 @@ fn configure_windows_graphics_recovery(
         cap_rendering::set_force_software_wgpu_adapter(true);
         crash_sentinel::mark_graphics_recovery();
         warn!(
-            "Previous Cap session terminated during GPU initialisation; using Windows software graphics recovery mode for this launch"
+            "Previous Shelf session terminated during GPU initialisation; using Windows software graphics recovery mode for this launch"
         );
     } else if previous_termination.is_some() {
         info!(
@@ -4422,7 +4422,7 @@ fn configure_camera_blur_recovery(
         crash_sentinel::mark_blur_recovery();
         if stored.is_none() {
             error!(
-                "Previous Cap session died with camera background blur active; disabling blur until the next app update"
+                "Previous Shelf session died with camera background blur active; disabling blur until the next app update"
             );
         } else {
             warn!("Camera background blur remains disabled by crash recovery for this launch");
