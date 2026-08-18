@@ -1,45 +1,68 @@
 {
 	"$schema": "https://turbo.build/schema.json",
-	"globalDependencies": [".env", ".env"],
-	"globalEnv": ["*"],
+	"globalDependencies": [
+		".env",
+		".env"
+	],
+	"globalEnv": [
+		"*"
+	],
 	"tasks": {
 		"build": {
-			"inputs": ["**/*.ts", "**/*.tsx", "!src-tauri/**", "!node_modules/**"],
-			"dependsOn": ["^build"],
-			"outputs": [".next/**", "!.next/cache/**", "dist/**"]
-		},
-		"@cap/desktop#build": {
-			"dependsOn": ["^build"],
-			"outputs": [".output/**"]
-		},
-		"@cap/chrome-extension#build": {
 			"inputs": [
 				"**/*.ts",
 				"**/*.tsx",
-				"**/*.css",
-				"*.html",
-				"public/**",
-				"vite.config.ts",
-				"vite.content.config.ts",
-				"vite.content-overlay.config.ts",
-				"tailwind.config.cjs",
-				"postcss.config.cjs",
-				"!node_modules/**",
-				"!dist/**",
-				"!test-results/**"
+				"!src-tauri/**",
+				"!node_modules/**"
 			],
-			"dependsOn": ["^build"],
-			"outputs": ["dist/**"]
+			"dependsOn": [
+				"^build"
+			],
+			"outputs": [
+				".next/**",
+				"!.next/cache/**",
+				"dist/**"
+			]
+		},
+		"@cap/desktop#build": {
+			"dependsOn": [
+				"^build"
+			],
+			"outputs": [
+				".output/**"
+			]
 		},
 		"build:web:docker": {
-			"inputs": ["**/*.ts", "**/*.tsx", "!src-tauri/**", "!node_modules/**"],
-			"dependsOn": ["^build"],
-			"outputs": [".next/**", "!.next/cache/**", "dist/**"]
+			"inputs": [
+				"**/*.ts",
+				"**/*.tsx",
+				"!src-tauri/**",
+				"!node_modules/**"
+			],
+			"dependsOn": [
+				"^build"
+			],
+			"outputs": [
+				".next/**",
+				"!.next/cache/**",
+				"dist/**"
+			]
 		},
 		"build:web": {
-			"inputs": ["**/*.ts", "**/*.tsx", "!src-tauri/**", "!node_modules/**"],
-			"dependsOn": ["^build"],
-			"outputs": [".next/**", "!.next/cache/**", "dist/**"]
+			"inputs": [
+				"**/*.ts",
+				"**/*.tsx",
+				"!src-tauri/**",
+				"!node_modules/**"
+			],
+			"dependsOn": [
+				"^build"
+			],
+			"outputs": [
+				".next/**",
+				"!.next/cache/**",
+				"dist/**"
+			]
 		},
 		"lint": {
 			"cache": false
@@ -62,12 +85,18 @@
 			"interactive": true
 		},
 		"dev": {
-			"dependsOn": ["db:push"],
+			"dependsOn": [
+				"db:push"
+			],
 			"cache": false,
 			"persistent": true
 		},
 		"test": {
-			"inputs": ["**/*.ts", "**/*.tsx", "!node_modules/**"],
+			"inputs": [
+				"**/*.ts",
+				"**/*.tsx",
+				"!node_modules/**"
+			],
 			"cache": false
 		}
 	}
