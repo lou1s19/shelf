@@ -22,6 +22,7 @@ import {
 } from "solid-js";
 import { createStore, produce, type SetStoreFunction } from "solid-js/store";
 import { TransitionGroup } from "solid-transition-group";
+import { generalSettingsStore } from "~/store";
 import { createTauriEventListener } from "~/utils/createEventListener";
 import { createExportToFileTask, exportVideo } from "~/utils/export";
 import { commands, events, type FramesRendered } from "~/utils/tauri";
@@ -30,12 +31,44 @@ import IconLucideClock from "~icons/lucide/clock";
 import IconLucideEye from "~icons/lucide/eye";
 import { FPS, OUTPUT_SIZE } from "./editor/context";
 
+type MediaType = "recording" | "screenshot";
+
 type MediaEntry = {
 	path: string;
 	prettyName: string;
-	isNew: boolean;
-	type?: "recording" | "screenshot";
+	/** Epoch ms. Drives the auto hide timer and decides which card is dropped first. */
+	createdAt: number;
+	type?: MediaType;
+	/** Small JPEG data URL shown until the real file has been written. */
+	preview?: string;
 };
+
+const CARD_HEIGHT = 150;
+const CARD_GAP = 16;
+const STACK_TOP_PADDING = 48;
+const STACK_BOTTOM_PADDING = 80;
+/** Safety net for very tall screens: nobody needs a wall of pins. */
+const MAX_VISIBLE_CARDS = 12;
+
+/** How many cards fit on this screen without the stack running off the top edge. */
+export function maxVisibleCards(availableHeight: number): number {
+	const usable = availableHeight - STACK_TOP_PADDING - STACK_BOTTOM_PADDING;
+	const fits = Math.floor((usable + CARD_GAP) / (CARD_HEIGHT + CARD_GAP));
+	return Math.max(1, Math.min(MAX_VISIBLE_CARDS, fits));
+}
+
+const DEFAULT_AUTO_HIDE_SECONDS = 10;
+
+/**
+ * `null` means a pin stays until it is dismissed by hand. A missing value is a store that has not
+ * been written since the setting exists, which gets the same default the backend uses.
+ */
+export function autoHideMsFromSettings(
+	seconds: number | null | undefined,
+): number | null {
+	if (seconds === undefined) return DEFAULT_AUTO_HIDE_SECONDS * 1000;
+	return typeof seconds === "number" && seconds > 0 ? seconds * 1000 : null;
+}
 
 export default function () {
 	onMount(() => {
@@ -52,7 +85,54 @@ export default function () {
 		{ name: "screenshots-store" },
 	);
 
-	const addMediaEntry = (path: string, type?: "recording" | "screenshot") => {
+	const settings = generalSettingsStore.createQuery();
+
+	const screenshotAutoHideMs = () =>
+		autoHideMsFromSettings(settings.data?.screenshotPinAutoHideSeconds);
+
+	const removeEntry = (path: string, type: MediaType) => {
+		const setMedia = type === "screenshot" ? setScreenshots : setRecordings;
+		setMedia(
+			produce((state) => {
+				const index = state.findIndex((entry) => entry.path === path);
+				if (index !== -1) state.splice(index, 1);
+			}),
+		);
+	};
+
+	// The stack grows upwards from the bottom left corner. Anything that no longer fits on this
+	// screen would sit above the top edge, out of reach, so the oldest cards are dropped instead.
+	const trimToScreen = () => {
+		const max = maxVisibleCards(window.innerHeight);
+		const entries = [
+			...recordings.map((entry) => ({
+				path: entry.path,
+				type: (entry.type ?? "recording") as MediaType,
+				createdAt: entry.createdAt ?? 0,
+			})),
+			...screenshots.map((entry) => ({
+				path: entry.path,
+				type: (entry.type ?? "screenshot") as MediaType,
+				createdAt: entry.createdAt ?? 0,
+			})),
+		];
+
+		if (entries.length <= max) return;
+
+		entries.sort((a, b) => a.createdAt - b.createdAt);
+		for (const entry of entries.slice(0, entries.length - max))
+			removeEntry(entry.path, entry.type);
+	};
+
+	// A pin is announced twice: once with a preview while the file is still being written, once
+	// when it exists. Remembering what was already shown keeps the second announcement from
+	// resurrecting a card the user has dismissed in between.
+	const seenPaths = new Set<string>();
+
+	const addMediaEntry = (path: string, type?: MediaType, preview?: string) => {
+		if (seenPaths.has(path)) return;
+		seenPaths.add(path);
+
 		const setMedia = type === "screenshot" ? setScreenshots : setRecordings;
 		setMedia(
 			produce((state) => {
@@ -62,31 +142,99 @@ export default function () {
 					/(?:Shelf|Cap) (\d{4}-\d{2}-\d{2} at \d{2}\.\d{2}\.\d{2})/,
 				);
 				const prettyName = match ? match[1].replace(/\./g, ":") : fileName;
-				state.unshift({ path, prettyName, isNew: true, type });
+				state.unshift({
+					path,
+					prettyName,
+					createdAt: Date.now(),
+					type,
+					preview,
+				});
 			}),
 		);
 
-		setTimeout(() => {
-			setMedia(
-				produce((state) => {
-					const index = state.findIndex((entry) => entry.path === path);
-					if (index !== -1) {
-						state[index].isNew = false;
-					}
-				}),
-			);
-		}, 3000);
+		trimToScreen();
 	};
+
+	/** Drops the preview so the card starts showing the file itself. */
+	const markFileWritten = (path: string) => {
+		setScreenshots(
+			produce((state) => {
+				const index = state.findIndex((entry) => entry.path === path);
+				if (index !== -1) state[index].preview = undefined;
+			}),
+		);
+	};
+
+	const onResize = () => trimToScreen();
+	window.addEventListener("resize", onResize);
+	onCleanup(() => window.removeEventListener("resize", onResize));
 
 	createTauriEventListener(events.newStudioRecordingAdded, (payload) => {
 		addMediaEntry(payload.path, "recording");
 	});
 
+	createTauriEventListener(events.screenshotPinPreview, (payload) => {
+		addMediaEntry(payload.path, "screenshot", payload.preview);
+	});
+
 	createTauriEventListener(events.newScreenshotAdded, (payload) => {
+		if (seenPaths.has(payload.path)) {
+			markFileWritten(payload.path);
+			return;
+		}
+
+		// A screenshot only pins when pinning is what the user asked for. Otherwise the overlay
+		// may still be open with older cards, and the new one has no business showing up there.
+		if (
+			!settings.isPending &&
+			(settings.data?.postScreenshotBehaviour ?? "showOverlay") !==
+				"showOverlay"
+		)
+			return;
+
 		addMediaEntry(payload.path, "screenshot");
 	});
 
+	// Pins from an earlier session would outlive their own hide time, so they are dropped on
+	// start. Without auto hiding they are meant to stay, and they do.
+	let startupCleanupDone = false;
+	createEffect(() => {
+		if (settings.isPending || startupCleanupDone) return;
+		startupCleanupDone = true;
+
+		const ms = screenshotAutoHideMs();
+		if (ms === null) return;
+
+		const cutoff = Date.now() - ms;
+		setScreenshots(
+			produce((state) => {
+				for (let index = state.length - 1; index >= 0; index--)
+					if ((state[index].createdAt ?? 0) <= cutoff) state.splice(index, 1);
+			}),
+		);
+	});
+
 	const allMedia = createMemo(() => [...recordings, ...screenshots]);
+
+	// Nothing left to show means nothing left to keep open. The window is only closed once it
+	// actually held something, so the empty window a screenshot is about to fill stays alive.
+	const [hadMedia, setHadMedia] = createSignal(false);
+	createEffect(() => {
+		if (allMedia().length > 0) {
+			setHadMedia(true);
+			return;
+		}
+
+		if (!hadMedia()) return;
+
+		const timeout = setTimeout(() => {
+			if (allMedia().length === 0)
+				commands
+					.closeRecordingsOverlayWindow()
+					.catch((error) => console.error("Failed to close overlay", error));
+		}, 400);
+		onCleanup(() => clearTimeout(timeout));
+	});
 
 	return (
 		<div
@@ -95,7 +243,7 @@ export default function () {
 				"scrollbar-color": "auto transparent",
 			}}
 		>
-			<div class="w-full relative left-0 bottom-0 flex flex-col-reverse pl-[40px] pb-[80px] gap-4 h-full overflow-y-auto scrollbar-none">
+			<div class="w-full relative left-0 bottom-0 flex flex-col-reverse pl-[40px] pb-[80px] gap-4 h-full overflow-hidden">
 				<div class="flex flex-col gap-4 pt-12 w-full">
 					<TransitionGroup
 						enterToClass="translate-y-0"
@@ -140,6 +288,10 @@ export default function () {
 
 								createFakeWindowBounds(ref, () => media.path);
 
+								const dismiss = () => removeEntry(media.path, type);
+
+								// The pin disappears once the file has landed somewhere else. A drag the
+								// user gave up on leaves it alone.
 								const dragOut = (e: MouseEvent) => {
 									if (isRecording || e.button !== 0) return;
 									if (
@@ -150,9 +302,59 @@ export default function () {
 
 									commands
 										.startFileDrag(media.path)
+										.then((dropped) => {
+											if (dropped) dismiss();
+										})
 										.catch((error) =>
 											console.error("Failed to start drag", error),
 										);
+								};
+
+								const autoHideMs = () =>
+									isRecording ? null : screenshotAutoHideMs();
+
+								let hideTimer: ReturnType<typeof setTimeout> | undefined;
+								let hideDeadline = 0;
+								let hideRemaining = 0;
+								let isHovered = false;
+
+								const clearHideTimer = () => {
+									if (hideTimer === undefined) return;
+									clearTimeout(hideTimer);
+									hideTimer = undefined;
+								};
+
+								const scheduleHide = (ms: number) => {
+									clearHideTimer();
+									hideDeadline = Date.now() + ms;
+									hideTimer = setTimeout(dismiss, ms);
+								};
+
+								createEffect(() => {
+									const ms = autoHideMs();
+									if (ms === null) {
+										clearHideTimer();
+										return;
+									}
+									if (!isHovered) scheduleHide(ms);
+								});
+
+								onCleanup(clearHideTimer);
+
+								// Nothing may vanish from under the cursor, so the timer pauses while the
+								// card is hovered and picks up the rest of the time afterwards.
+								const pauseHide = () => {
+									isHovered = true;
+									if (hideTimer === undefined) return;
+									hideRemaining = Math.max(0, hideDeadline - Date.now());
+									clearHideTimer();
+								};
+
+								const resumeHide = () => {
+									isHovered = false;
+									const ms = autoHideMs();
+									if (ms === null) return;
+									scheduleHide(hideRemaining > 0 ? hideRemaining : ms);
 								};
 
 								return (
@@ -165,6 +367,8 @@ export default function () {
 												!isRecording && "cursor-grab active:cursor-grabbing",
 											)}
 											onMouseDown={dragOut}
+											onMouseEnter={pauseHide}
+											onMouseLeave={resumeHide}
 										>
 											<div
 												class={cx(
@@ -184,11 +388,14 @@ export default function () {
 													<img
 														class="pointer-events-none w-full h-full object-cover absolute inset-0 -z-10 rounded-[7.4px]"
 														alt="media preview"
-														src={`${convertFileSrc(
-															isRecording
-																? `${media.path}/screenshots/display.jpg`
-																: `${media.path}`,
-														)}?t=${Date.now()}`}
+														src={
+															media.preview ??
+															`${convertFileSrc(
+																isRecording
+																	? `${media.path}/screenshots/display.jpg`
+																	: `${media.path}`,
+															)}?t=${Date.now()}`
+														}
 														onError={() => setImageExists(false)}
 													/>
 												</Show>
@@ -269,75 +476,45 @@ export default function () {
 														class="absolute top-3 left-3 z-20"
 														tooltipText="Close"
 														tooltipPlacement="right"
-														onClick={() => {
-															const setMedia = isRecording
-																? setRecordings
-																: setScreenshots;
-															setMedia(
-																produce((state) => {
-																	const index = state.findIndex(
-																		(entry) => entry.path === media.path,
-																	);
-																	if (index !== -1) {
-																		state.splice(index, 1);
-																	}
-																}),
-															);
-														}}
+														onClick={dismiss}
 													>
 														<IconCapCircleX class="size-4" />
 													</TooltipIconButton>
-													{isRecording ? (
+													<TooltipIconButton
+														class="absolute bottom-3 left-3 z-20"
+														tooltipText="Edit"
+														tooltipPlacement="right"
+														onClick={() => {
+															dismiss();
+															commands.showWindow(
+																isRecording
+																	? { Editor: { project_path: media.path } }
+																	: { ScreenshotEditor: { path: media.path } },
+															);
+														}}
+													>
+														<IconCapEditor class="size-4" />
+													</TooltipIconButton>
+													<Show when={!isRecording}>
 														<TooltipIconButton
-															class="absolute bottom-3 left-3 z-20"
-															tooltipText="Edit"
-															tooltipPlacement="right"
-															onClick={() => {
-																const setMedia = isRecording
-																	? setRecordings
-																	: setScreenshots;
-																setMedia(
-																	produce((state) => {
-																		const index = state.findIndex(
-																			(entry) => entry.path === media.path,
-																		);
-																		if (index !== -1) {
-																			state.splice(index, 1);
-																		}
-																	}),
-																);
-																commands.showWindow({
-																	Editor: { project_path: media.path },
-																});
-															}}
-														>
-															<IconCapEditor class="size-4" />
-														</TooltipIconButton>
-													) : (
-														<TooltipIconButton
-															class="absolute bottom-3 left-3 z-20"
+															class="absolute top-3 right-3 z-20"
 															tooltipText="View"
-															tooltipPlacement="right"
+															tooltipPlacement="left"
 															onClick={() => {
 																commands.openFilePath(media.path);
 															}}
 														>
 															<IconLucideEye class="size-4" />
 														</TooltipIconButton>
-													)}
-													<TooltipIconButton
-														class="absolute top-3 right-3 z-20"
-														tooltipText={
-															copy.isPending
-																? "Copying to Clipboard"
-																: "Copy to Clipboard"
-														}
-														tooltipPlacement="left"
-														onClick={() => copy.mutate()}
-													>
-														<IconCapCopy class="size-4" />
-													</TooltipIconButton>
-													<div class="flex absolute inset-0 justify-center items-center">
+													</Show>
+													<div class="flex absolute inset-0 gap-2 justify-center items-center">
+														<Button
+															variant="white"
+															size="sm"
+															onClick={() => copy.mutate()}
+														>
+															{copy.isPending ? "Copying" : "Copy"}
+														</Button>
 														<Button
 															variant="white"
 															size="sm"

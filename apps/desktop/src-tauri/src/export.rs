@@ -1250,9 +1250,7 @@ async fn export_video_inner(
         Err(e) if cancel_token.is_cancelled() || e == "Export cancelled" => {
             Err("Export cancelled".to_string())
         }
-        Err(e) => {
-            Err(e)
-        }
+        Err(e) => Err(e),
     }
 }
 

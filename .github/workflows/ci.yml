@@ -1,46 +1,59 @@
 name: CI
 
+# Runs on every branch so feature branches are checked before they land on main.
 on:
   push:
-    branches: [main]
   pull_request:
-  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.head_ref || github.ref_name }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
 
 jobs:
   frontend:
-    name: Format and lint the frontend
+    name: Frontend and formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10.5.2
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec biome ci apps/desktop/src
 
-  rust:
-    name: Build and check the desktop app
-    runs-on: macos-14
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+  rust-format:
+    name: Rust formatting
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-      - name: Formatting
-        run: cargo fmt --check -p cap-desktop
-      - name: Clippy
-        run: cargo clippy --no-default-features -p cap-desktop -- -D warnings
-      - name: Tests
-        run: cargo test --no-default-features -p cap-desktop
+
+      # rustfmt only parses, so this needs no system libraries and runs on Linux.
+      - name: Install toolchain
+        run: rustup toolchain install 1.88.0 --component rustfmt --profile minimal
+
+      - name: Check formatting
+        run: cargo +1.88.0 fmt --all --check
+
+# The Rust build itself is deliberately not in CI. This is a macOS desktop app
+# with native capture and media dependencies, so it only compiles on a macOS
+# runner, where minutes are billed at ten times the Linux rate. A full build
+# takes long enough to drain the monthly quota of a private repository in a
+# handful of runs. Build and check it locally instead:
+#
+#   cargo check -p cap-desktop
+#   scripts/install-shelf.sh
+#
+# Revisit this once the repository is public, where macOS runners are free.

@@ -4,9 +4,14 @@ Read `AGENTS.md` for repository instructions.
 
 ## Dieser Fork
 
-Das hier ist Louis' eigener Fork von [CapSoftware/Cap](https://github.com/CapSoftware/Cap)
-(`origin` = `lou1s19/Cap`, `upstream` = `CapSoftware/Cap`). Es gibt **keinen**
+Das hier ist Louis' eigene App, entstanden aus einem Fork von
+[CapSoftware/Cap](https://github.com/CapSoftware/Cap). Es gibt **keinen**
 Pull-Request-Workflow mehr zurück nach oben. Änderungen landen hier.
+
+Remotes:
+- `origin` = `lou1s19/shelf` — das eigene Repo, aktuell privat. Hier wird gepusht.
+- `cap-fork` = `lou1s19/Cap` — der alte Fork, bleibt als Archiv liegen.
+- `upstream` = `CapSoftware/Cap` — nur zum Nachschlagen.
 
 - **Lizenz:** AGPLv3 (siehe `LICENSE`), Teile MIT. Sobald die App an andere
   weitergegeben wird, muss der Quellcode mitgeliefert werden und die Lizenz

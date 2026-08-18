@@ -216,9 +216,26 @@ export function createOptionsQuery() {
 		}
 	});
 
+	// The tray menu writes these directly, so mirror every field back into the
+	// window state. Without this the window would overwrite a tray change on its
+	// next edit.
 	const storeListenerCleanup = recordingSettingsStore.listen((data) => {
-		if (data?.mode && data.mode !== _state.mode) {
+		if (!data) return;
+
+		if (data.mode && data.mode !== _state.mode) {
 			_setState("mode", data.mode);
+		}
+		if (data.micName !== _state.micName) {
+			_setState("micName", data.micName ?? null);
+		}
+		if (data.cameraId !== _state.cameraID) {
+			_setState("cameraID", data.cameraId ?? null);
+		}
+		if (
+			data.systemAudio !== undefined &&
+			data.systemAudio !== _state.captureSystemAudio
+		) {
+			_setState("captureSystemAudio", data.systemAudio);
 		}
 	});
 	onCleanup(() => storeListenerCleanup.then((c) => c()));

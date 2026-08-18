@@ -14,13 +14,23 @@ Verlauf und Begründungen stehen im `CHANGELOG.md`, Projektregeln in `CLAUDE.md`
    Offen: Wie lange stehen bleiben, wo erscheinen (bei der Maus oder am Rand),
    und was passiert bei langem Text (kürzen oder scrollen).
 
-2. **Oberfläche ist Louis zu unübersichtlich.** Wörtlich: „das ist mir alles zu
-   unübersichtlich". Vor dem Umbauen klären, welcher Bildschirm gemeint ist:
-   Hauptfenster, Einstellungen oder der Editor. Wahrscheinlichster Kandidat sind
-   die Einstellungen, dort stehen nach dem Ausbau der Cloud-Funktionen noch viele
-   Optionen ohne Gruppierung.
-   Vorgehen: erst zeigen lassen, welcher Bildschirm stört, dann aufräumen. Nicht
-   auf Verdacht umbauen.
+2. **Tray-Symbol gestalterisch nochmal ansehen.** Das Cap-Symbol ist raus, das
+   neue Regal-Motiv liest sich bei Menüleistengröße aber eher wie ein
+   Gleichheitszeichen, und der Punkt der Instant-Variante wirkt wie ein Fleck.
+   Technisch in Ordnung (Template-Modus, vier Zustände, Quellen unter
+   `apps/desktop/src-tauri/icons/src/`), nur nicht unverwechselbar.
+   Offen: erst live in der Menüleiste ansehen, dann entscheiden, ob eine andere
+   Richtung her muss. Die alten Symbole liegen als `*.png.bak` daneben.
+
+3. **Kleinkram aus dem Geschwindigkeits-Umbau.** Alles gemessen, alles gering:
+   - `apps/desktop/src/routes/target-select-overlay.tsx:1264`: zusätzliche 50 ms
+     `setTimeout` nur im Bereichs-Weg. Rust wartet danach ohnehin, kann weg.
+   - `crates/recording/src/screenshot.rs:63-105`: skalare BGRA-nach-RGB-Schleife,
+     rund 50 ms für 3,7 Megapixel. Als Chunk-Iterator oder mit `rayon` deutlich
+     schneller.
+   - „Camera Only" als Aufnahmeziel fehlt im Tray-Menü, im Hauptfenster gibt es
+     das. Die Feinauswahl welcher Bildschirm oder welches Fenster fehlt bewusst,
+     dafür müsste bei jedem Öffnen die Fensterliste aufgezählt werden.
 
 ## Danach
 

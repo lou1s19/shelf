@@ -1480,6 +1480,17 @@ impl ShowCapWindow {
             return Ok(window);
         }
 
+        // The overlay is screen sized and pins its cards to one corner of one monitor. An already
+        // open window keeps whatever monitor it was created on, so a screenshot taken on another
+        // screen would pin on the wrong one. Move it over before it is shown again.
+        if let Self::RecordingsOverlay = self
+            && let Some(window) = self.id(app).get(app)
+        {
+            let monitor = CursorMonitorInfo::get();
+            let _ = window.set_position(monitor.position(monitor.x, monitor.y));
+            let _ = window.set_size(LogicalSize::new(monitor.width, monitor.height));
+        }
+
         if !matches!(self, Self::Camera { .. } | Self::InProgressRecording { .. })
             && let Some(window) = self.id(app).get(app)
         {

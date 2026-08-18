@@ -1,7 +1,6 @@
 #![recursion_limit = "256"]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-
 use cap_desktop_lib::DynLoggingLayer;
 use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -53,8 +52,7 @@ fn main() {
     let info_file_appender = tracing_appender::rolling::daily(&logs_dir, "shelf.log");
     let (info_file_writer, _info_logger_guard) = tracing_appender::non_blocking(info_file_appender);
 
-    let errors_file_appender =
-        tracing_appender::rolling::daily(&logs_dir, "shelf-errors.log");
+    let errors_file_appender = tracing_appender::rolling::daily(&logs_dir, "shelf-errors.log");
 
     #[cfg(debug_assertions)]
     let level_filter = tracing_subscriber::filter::LevelFilter::TRACE;
