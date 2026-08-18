@@ -193,8 +193,6 @@ pub struct GeneralSettingsStore {
         rename = "custom_cursor_capture2"
     )]
     pub custom_cursor_capture: bool,
-    #[serde(default = "default_server_url")]
-    pub server_url: String,
     #[serde(default)]
     pub recording_countdown: Option<u32>,
     #[serde(
@@ -217,8 +215,6 @@ pub struct GeneralSettingsStore {
     pub post_deletion_behaviour: PostDeletionBehaviour,
     #[serde(default = "default_excluded_windows")]
     pub excluded_windows: Vec<WindowExclusion>,
-    #[serde(default)]
-    pub delete_instant_recordings_after_upload: bool,
     #[serde(default = "default_instant_mode_max_resolution")]
     pub instant_mode_max_resolution: u32,
     #[serde(default)]
@@ -302,12 +298,6 @@ fn default_transcription_hints() -> Vec<String> {
     ]
 }
 
-fn default_server_url() -> String {
-    std::option_env!("VITE_SERVER_URL")
-        .unwrap_or("https://cap.so")
-        .to_string()
-}
-
 #[derive(Serialize, Deserialize, Type, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct CommercialLicense {
@@ -335,7 +325,6 @@ impl Default for GeneralSettingsStore {
             post_screenshot_behaviour: PostScreenshotBehaviour::OpenEditor,
             main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour::Close,
             custom_cursor_capture: cap_recording::DEFAULT_CUSTOM_CURSOR_CAPTURE,
-            server_url: default_server_url(),
             recording_countdown: Some(3),
             enable_native_camera_preview: default_enable_native_camera_preview(),
             // Keep aligned with the field's serde `default_true`: auto zooms
@@ -346,7 +335,6 @@ impl Default for GeneralSettingsStore {
             capture_keyboard_events: cap_recording::DEFAULT_CAPTURE_KEYBOARD_EVENTS,
             post_deletion_behaviour: PostDeletionBehaviour::DoNothing,
             excluded_windows: default_excluded_windows(),
-            delete_instant_recordings_after_upload: false,
             instant_mode_max_resolution: cap_recording::DEFAULT_INSTANT_MODE_MAX_RESOLUTION,
             default_project_name_template: None,
             crash_recovery_recording: cap_recording::DEFAULT_CRASH_RECOVERY_RECORDING,

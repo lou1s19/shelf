@@ -234,7 +234,6 @@ impl DeepLinkAction {
                     mode,
                     capture_target,
                     capture_system_audio,
-                    organization_id: None,
                 };
 
                 crate::recording::start_recording(app.clone(), state, inputs)

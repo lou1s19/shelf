@@ -1,10 +1,8 @@
 #![recursion_limit = "256"]
 
-mod api;
 mod audio;
 mod audio_library;
 mod audio_meter;
-mod auth;
 mod automation;
 mod camera;
 mod camera_legacy;
@@ -26,7 +24,6 @@ mod general_settings;
 mod hotkeys;
 mod http_client;
 mod import;
-mod logging;
 mod notifications;
 mod panel_manager;
 mod permissions;
@@ -44,19 +41,16 @@ mod thumbnails;
 mod tray;
 mod update_project_names;
 mod updates;
-mod upload;
-pub mod web_api;
 mod window_exclusion;
 mod window_position_persistence;
 mod windows;
 
 use audio::AppSounds;
-use auth::{AuthStore, Plan};
 use camera::{CameraPreviewManager, CameraPreviewSender, CameraPreviewState};
 use cap_editor::{EditorInstance, EditorState};
 use cap_project::{
-    InstantRecordingMeta, ProjectConfiguration, RecordingMeta, RecordingMetaInner, SharingMeta,
-    StudioRecordingMeta, StudioRecordingStatus, UploadMeta, VideoUploadInfo, XY, ZoomSegment,
+    InstantRecordingMeta, ProjectConfiguration, RecordingMeta, RecordingMetaInner,
+    StudioRecordingMeta, StudioRecordingStatus, XY, ZoomSegment,
 };
 use cap_recording::{
     RecordingMode,
@@ -75,7 +69,6 @@ use editor_window::{EditorInstances, PendingEditorInstances, WindowEditorInstanc
 use ffmpeg::ffi::AV_TIME_BASE;
 use general_settings::GeneralSettingsStore;
 use kameo::{Actor, actor::ActorRef};
-use notifications::NotificationType;
 use recording::{InProgressRecording, RecordingEvent, RecordingInputKind};
 use scap_targets::{Display, DisplayId, WindowId, bounds::LogicalBounds};
 use screenshot_editor::{
@@ -104,7 +97,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::Listener;
-use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent, ipc::Channel};
+use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -114,9 +107,6 @@ use tauri_plugin_shell::ShellExt;
 use tauri_specta::Event;
 use tokio::sync::{Mutex, RwLock, oneshot, watch};
 use tracing::*;
-use upload::{create_or_get_video, upload_screenshot_bytes, upload_screenshot_file, upload_video};
-use web_api::AuthedApiError;
-use web_api::ManagerExt as WebManagerExt;
 #[cfg(target_os = "macos")]
 use windows::hide_overlay;
 use windows::{
@@ -124,11 +114,8 @@ use windows::{
     set_window_transparent, show_overlay,
 };
 
-use crate::{recording::start_recording, upload::build_video_meta};
-use crate::{
-    recording_settings::{RecordingSettingsStore, RecordingTargetMode},
-    upload::InstantMultipartUpload,
-};
+use crate::recording::start_recording;
+use crate::recording_settings::{RecordingSettingsStore, RecordingTargetMode};
 use exit_shutdown::{
     AppExitAction, ExitRequestDecision, app_exit_action, collect_device_inventory,
     handle_exit_requested, run_while_active,
@@ -713,8 +700,6 @@ pub struct App {
     camera_in_use: bool,
     camera_cleanup_done: bool,
     camera_feed: ActorRef<feeds::camera::CameraFeed>,
-    server_url: String,
-    logs_dir: PathBuf,
     disconnected_inputs: HashSet<RecordingInputKind>,
     was_camera_only_recording: bool,
 }
@@ -725,14 +710,6 @@ pub enum VideoType {
     Screen,
     Output,
     Camera,
-}
-
-#[derive(Serialize, Deserialize, specta::Type, Debug)]
-pub enum UploadResult {
-    Success(String),
-    NotAuthenticated,
-    PlanCheckFailed,
-    UpgradeRequired,
 }
 
 #[derive(Serialize, Deserialize, specta::Type, Debug)]
@@ -1237,12 +1214,6 @@ async fn set_mic_input(state: MutableState<'_, App>, label: Option<String>) -> R
             Err(err)
         }
     }
-}
-
-#[tauri::command]
-#[specta::specta]
-async fn upload_logs(app_handle: AppHandle) -> Result<(), String> {
-    logging::upload_log_file(&app_handle).await
 }
 
 #[tauri::command]
@@ -3463,332 +3434,6 @@ async fn list_system_fonts() -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[derive(Serialize, Type, Debug, Clone)]
-pub struct UploadProgress {
-    progress: f64,
-}
-
-#[derive(Debug, Deserialize, Type)]
-pub enum UploadMode {
-    Initial {
-        pre_created_video: Option<VideoUploadInfo>,
-    },
-    Reupload,
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app, channel))]
-async fn upload_exported_video(
-    app: AppHandle,
-    path: PathBuf,
-    mode: UploadMode,
-    channel: Channel<UploadProgress>,
-    organization_id: Option<String>,
-) -> Result<UploadResult, String> {
-    let Ok(Some(auth)) = AuthStore::get(&app) else {
-        AuthStore::set(&app, None).map_err(|e| e.to_string())?;
-        return Ok(UploadResult::NotAuthenticated);
-    };
-
-    let mut meta = RecordingMeta::load_for_project(&path).map_err(|v| v.to_string())?;
-
-    let file_path = meta.output_path();
-    if !file_path.exists() {
-        notifications::send_notification(&app, notifications::NotificationType::UploadFailed);
-        return Err("Failed to upload video: Rendered video not found".to_string());
-    }
-
-    let metadata = build_video_meta(&file_path)
-        .map_err(|err| format!("Error getting output video meta: {err}"))?;
-
-    if !auth.is_upgraded() && metadata.duration_in_secs > 300.0 {
-        return Ok(UploadResult::UpgradeRequired);
-    }
-
-    channel.send(UploadProgress { progress: 0.0 }).ok();
-
-    let s3_config = match async {
-        let video_id = match mode {
-            UploadMode::Initial { pre_created_video } => {
-                if let Some(pre_created) = pre_created_video {
-                    return Ok(pre_created.config);
-                }
-                None
-            }
-            UploadMode::Reupload => {
-                let Some(sharing) = meta.sharing.clone() else {
-                    return Err("No sharing metadata found".into());
-                };
-
-                Some(sharing.id)
-            }
-        };
-
-        create_or_get_video(
-            &app,
-            false,
-            video_id,
-            Some(meta.pretty_name.clone()),
-            Some(metadata.clone()),
-            organization_id,
-        )
-        .await
-    }
-    .await
-    {
-        Ok(data) => data,
-        Err(AuthedApiError::InvalidAuthentication) => return Ok(UploadResult::NotAuthenticated),
-        Err(AuthedApiError::UpgradeRequired) => return Ok(UploadResult::UpgradeRequired),
-        Err(err) => return Err(err.to_string()),
-    };
-
-    let screenshot_path = meta.project_path.join("screenshots/display.jpg");
-    meta.upload = Some(UploadMeta::SinglePartUpload {
-        video_id: s3_config.id.clone(),
-        file_path: file_path.clone(),
-        screenshot_path: screenshot_path.clone(),
-        recording_dir: path.clone(),
-    });
-    meta.save_for_project()
-        .map_err(|e| error!("Failed to save recording meta: {e}"))
-        .ok();
-
-    match upload_video(
-        &app,
-        s3_config.id.clone(),
-        file_path,
-        screenshot_path,
-        metadata,
-        Some(channel.clone()),
-    )
-    .await
-    {
-        Ok(uploaded_video) => {
-            channel.send(UploadProgress { progress: 1.0 }).ok();
-
-            meta.upload = Some(UploadMeta::Complete);
-            meta.sharing = Some(SharingMeta {
-                link: uploaded_video.link.clone(),
-                id: uploaded_video.id.clone(),
-                content_hash: None,
-            });
-            meta.save_for_project()
-                .map_err(|e| error!("Failed to save recording meta: {e}"))
-                .ok();
-
-            let _ = app
-                .state::<ArcLock<ClipboardContext>>()
-                .write()
-                .await
-                .set_text(uploaded_video.link.clone());
-
-            NotificationType::ShareableLinkCopied.send(&app);
-            Ok(UploadResult::Success(uploaded_video.link))
-        }
-        Err(AuthedApiError::UpgradeRequired) => Ok(UploadResult::UpgradeRequired),
-        Err(e) => {
-            error!("Failed to upload video: {e}");
-
-            NotificationType::UploadFailed.send(&app);
-
-            meta.upload = Some(UploadMeta::Failed {
-                error: e.to_string(),
-            });
-            meta.save_for_project()
-                .map_err(|e| error!("Failed to save recording meta: {e}"))
-                .ok();
-
-            Err(e.to_string())
-        }
-    }
-}
-
-fn screenshot_project_path_from_path(path: &std::path::Path) -> Option<PathBuf> {
-    path.ancestors()
-        .find(|ancestor| ancestor.extension().and_then(|s| s.to_str()) == Some("cap"))
-        .map(std::path::Path::to_path_buf)
-}
-
-fn load_screenshot_project_meta(
-    path: &std::path::Path,
-) -> Result<(PathBuf, RecordingMeta), String> {
-    let project_path = screenshot_project_path_from_path(path)
-        .ok_or_else(|| format!("Could not find screenshot project for {}", path.display()))?;
-    let meta = RecordingMeta::load_for_project(&project_path)
-        .map_err(|err| format!("Failed to load screenshot metadata: {err}"))?;
-    Ok((project_path, meta))
-}
-
-fn save_screenshot_sharing(
-    project_path: &std::path::Path,
-    mut meta: RecordingMeta,
-    uploaded: &upload::UploadedItem,
-    content_hash: Option<String>,
-) -> Result<(), String> {
-    meta.sharing = Some(SharingMeta {
-        link: uploaded.link.clone(),
-        id: uploaded.id.clone(),
-        content_hash,
-    });
-    meta.save_for_project()
-        .map_err(|err| format!("Error saving project {}: {err}", project_path.display()))
-}
-
-#[derive(Serialize, Type, Debug)]
-#[serde(rename_all = "camelCase")]
-struct ScreenshotSharingState {
-    link: String,
-    content_hash: Option<String>,
-}
-
-#[derive(Serialize, Type, Debug)]
-#[serde(rename_all = "camelCase")]
-struct ScreenshotProjectShareState {
-    config: ProjectConfiguration,
-    sharing: Option<ScreenshotSharingState>,
-}
-
-async fn copy_screenshot_share_link(
-    clipboard: &MutableState<'_, ClipboardContext>,
-    link: String,
-    app: &AppHandle,
-) -> Result<(), String> {
-    let _ = clipboard.write().await.set_text(link);
-    notifications::send_notification(app, notifications::NotificationType::ShareableLinkCopied);
-    Ok(())
-}
-
-fn screenshot_share_link_for_hash(
-    sharing: Option<&SharingMeta>,
-    content_hash: &str,
-) -> Option<String> {
-    let sharing = sharing?;
-    if sharing.content_hash.as_deref() == Some(content_hash) {
-        return Some(sharing.link.clone());
-    }
-    None
-}
-
-async fn upgrade_required_result(app: &AppHandle) -> UploadResult {
-    let _ = ShowCapWindow::Upgrade.show(app).await;
-    UploadResult::UpgradeRequired
-}
-
-#[tauri::command]
-#[specta::specta]
-fn get_screenshot_project_share_state(
-    path: PathBuf,
-) -> Result<ScreenshotProjectShareState, String> {
-    let (project_path, meta) = load_screenshot_project_meta(&path)?;
-    let config = ProjectConfiguration::load(&project_path)
-        .map_err(|err| format!("Failed to load screenshot config: {err}"))?;
-    let sharing = meta.sharing.map(|sharing| ScreenshotSharingState {
-        link: sharing.link,
-        content_hash: sharing.content_hash,
-    });
-
-    Ok(ScreenshotProjectShareState { config, sharing })
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app, clipboard))]
-async fn copy_current_screenshot_share_link(
-    app: AppHandle,
-    clipboard: MutableState<'_, ClipboardContext>,
-    project_path: PathBuf,
-    content_hash: String,
-) -> Result<Option<UploadResult>, String> {
-    let (_, meta) = load_screenshot_project_meta(&project_path)?;
-    let Some(link) = screenshot_share_link_for_hash(meta.sharing.as_ref(), &content_hash) else {
-        return Ok(None);
-    };
-
-    copy_screenshot_share_link(&clipboard, link.clone(), &app).await?;
-    Ok(Some(UploadResult::Success(link)))
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app, clipboard))]
-async fn upload_screenshot(
-    app: AppHandle,
-    clipboard: MutableState<'_, ClipboardContext>,
-    screenshot_path: PathBuf,
-) -> Result<UploadResult, String> {
-    let Ok(Some(auth)) = AuthStore::get(&app) else {
-        AuthStore::set(&app, None).map_err(|e| e.to_string())?;
-        return Ok(UploadResult::NotAuthenticated);
-    };
-
-    if !auth.is_upgraded() {
-        return Ok(upgrade_required_result(&app).await);
-    }
-
-    println!("Uploading screenshot: {screenshot_path:?}");
-
-    let (project_path, meta) = load_screenshot_project_meta(&screenshot_path)?;
-    if let Some(sharing) = meta.sharing.as_ref() {
-        copy_screenshot_share_link(&clipboard, sharing.link.clone(), &app).await?;
-        return Ok(UploadResult::Success(sharing.link.clone()));
-    }
-
-    let uploaded = match upload_screenshot_file(&app, screenshot_path.clone(), None, None).await {
-        Ok(uploaded) => uploaded,
-        Err(AuthedApiError::InvalidAuthentication) => return Ok(UploadResult::NotAuthenticated),
-        Err(AuthedApiError::UpgradeRequired) => return Ok(upgrade_required_result(&app).await),
-        Err(e) => return Err(e.to_string()),
-    };
-    save_screenshot_sharing(&project_path, meta, &uploaded, None)?;
-
-    println!("Copying to clipboard: {:?}", uploaded.link);
-
-    copy_screenshot_share_link(&clipboard, uploaded.link.clone(), &app).await?;
-
-    Ok(UploadResult::Success(uploaded.link))
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app, clipboard, image_bytes))]
-async fn upload_rendered_screenshot(
-    app: AppHandle,
-    clipboard: MutableState<'_, ClipboardContext>,
-    image_bytes: Vec<u8>,
-    content_type: String,
-    project_path: PathBuf,
-    content_hash: Option<String>,
-) -> Result<UploadResult, String> {
-    let Ok(Some(auth)) = AuthStore::get(&app) else {
-        AuthStore::set(&app, None).map_err(|e| e.to_string())?;
-        return Ok(UploadResult::NotAuthenticated);
-    };
-
-    if !auth.is_upgraded() {
-        return Ok(upgrade_required_result(&app).await);
-    }
-
-    let (project_path, meta) = load_screenshot_project_meta(&project_path)?;
-    let existing_video_id = meta.sharing.as_ref().map(|sharing| sharing.id.clone());
-    let uploaded =
-        match upload_screenshot_bytes(&app, image_bytes, &content_type, existing_video_id, None)
-            .await
-        {
-            Ok(uploaded) => uploaded,
-            Err(AuthedApiError::InvalidAuthentication) => {
-                return Ok(UploadResult::NotAuthenticated);
-            }
-            Err(AuthedApiError::UpgradeRequired) => return Ok(upgrade_required_result(&app).await),
-            Err(e) => return Err(e.to_string()),
-        };
-    save_screenshot_sharing(&project_path, meta, &uploaded, content_hash)?;
-
-    copy_screenshot_share_link(&clipboard, uploaded.link.clone(), &app).await?;
-
-    Ok(UploadResult::Success(uploaded.link))
-}
-
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app))]
@@ -4084,68 +3729,6 @@ fn list_screenshots(app: AppHandle) -> Result<Vec<(PathBuf, ScreenshotMetaWithMe
     result.sort_by(|(_, a), (_, b)| b.sort_time_millis.total_cmp(&a.sort_time_millis));
 
     Ok(result)
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app))]
-async fn check_upgraded_and_update(app: AppHandle) -> Result<bool, String> {
-    println!("Checking upgraded status and updating...");
-
-    if let Ok(Some(settings)) = GeneralSettingsStore::get(&app)
-        && settings.commercial_license.is_some()
-    {
-        return Ok(true);
-    }
-
-    let Ok(Some(auth)) = AuthStore::get(&app) else {
-        return Ok(false);
-    };
-
-    if let Some(ref plan) = auth.plan
-        && plan.manual
-    {
-        return Ok(true);
-    }
-
-    println!(
-        "Fetching plan for user {}",
-        auth.user_id.as_deref().unwrap_or("unknown")
-    );
-    let response = app
-        .authed_api_request("/api/desktop/plan", |client, url| client.get(url))
-        .await
-        .map_err(|e| {
-            println!("Failed to fetch plan: {e}");
-            e.to_string()
-        })?;
-
-    println!("Plan fetch response status: {}", response.status());
-    let plan_data = response.json::<serde_json::Value>().await.map_err(|e| {
-        println!("Failed to parse plan response: {e}");
-        format!("Failed to parse plan response: {e}")
-    })?;
-
-    let is_pro = plan_data
-        .get("upgraded")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    println!("Pro status: {is_pro}");
-    let updated_auth = AuthStore {
-        secret: auth.secret,
-        user_id: auth.user_id,
-        plan: Some(Plan {
-            upgraded: is_pro,
-            manual: auth.plan.map(|p| p.manual).unwrap_or(false),
-            last_checked: chrono::Utc::now().timestamp() as i32,
-        }),
-        organizations: auth.organizations,
-        organizations_updated_at: auth.organizations_updated_at,
-    };
-    println!("Updating auth store with new pro status");
-    AuthStore::set(&app, Some(updated_auth)).map_err(|e| e.to_string())?;
-
-    Ok(is_pro)
 }
 
 #[tauri::command]
@@ -4541,16 +4124,6 @@ async fn check_notification_permissions(app: AppHandle) {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app))]
-async fn set_server_url(app: MutableState<'_, App>, server_url: String) -> Result<(), ()> {
-    let mut app = app.write().await;
-    app.server_url = server_url;
-
-    Ok(())
-}
-
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app))]
 async fn pick_recordings_folder(app: AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
@@ -4720,13 +4293,6 @@ async fn await_camera_preview_ready(app: MutableState<'_, App>) -> Result<bool, 
     Ok(true)
 }
 
-#[tauri::command]
-#[specta::specta]
-#[instrument(skip(app))]
-async fn update_auth_plan(app: AppHandle) {
-    AuthStore::update_auth_plan(&app).await.ok();
-}
-
 pub async fn open_target_picker(
     app: &tauri::AppHandle,
     target_mode: recording_settings::RecordingTargetMode,
@@ -4876,7 +4442,6 @@ fn specta_builder() -> tauri_specta::Builder {
             set_camera_input,
             set_native_camera_preview_enabled,
             recording_settings::set_recording_mode,
-            upload_logs,
             get_system_diagnostics,
             cli::get_cli_install_status,
             cli::install_cli,
@@ -4945,15 +4510,10 @@ fn specta_builder() -> tauri_specta::Builder {
             generate_keyboard_segments,
             render_screenshot_for_export,
             render_screenshot_project_for_export,
-            get_screenshot_project_share_state,
             permissions::open_permission_settings,
             permissions::do_permissions_check,
             permissions::request_permission,
             get_devices_snapshot,
-            upload_exported_video,
-            copy_current_screenshot_share_link,
-            upload_screenshot,
-            upload_rendered_screenshot,
             create_screenshot_editor_instance,
             update_screenshot_config,
             prewarm_screenshot_background,
@@ -4962,7 +4522,6 @@ fn specta_builder() -> tauri_specta::Builder {
             save_file_dialog,
             list_recordings,
             list_screenshots,
-            check_upgraded_and_update,
             open_external_link,
             hotkeys::set_hotkey,
             reset_camera_permissions,
@@ -4984,14 +4543,12 @@ fn specta_builder() -> tauri_specta::Builder {
             platform::is_system_audio_capture_supported,
             list_fails,
             set_fail,
-            update_auth_plan,
             set_window_transparent,
             get_editor_meta,
             get_recording_meta_by_path,
             set_editor_recording_target,
             delete_recording_directory,
             set_pretty_name,
-            set_server_url,
             pick_recordings_folder,
             reset_recordings_folder,
             recordings_locations::count_recordings_to_migrate,
@@ -5060,7 +4617,6 @@ fn specta_builder() -> tauri_specta::Builder {
             recordings_locations::RecordingsMigrationProgress,
             target_select_overlay::TargetUnderCursor,
             hotkeys::OnEscapePress,
-            upload::UploadProgressEvent,
             import::VideoImportProgress,
             SetCaptureAreaPending,
             DevicesUpdated,
@@ -5069,7 +4625,6 @@ fn specta_builder() -> tauri_specta::Builder {
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .typ::<ProjectConfiguration>()
-        .typ::<AuthStore>()
         .typ::<presets::PresetsStore>()
         .typ::<hotkeys::HotkeysStore>()
         .typ::<general_settings::GeneralSettingsStore>()
@@ -5354,39 +4909,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 }
             });
 
-            if let Ok(Some(auth)) = AuthStore::load(&app) {
-            }
-
             {
-                let (server_url, should_update) = if cfg!(debug_assertions)
-                    && let Ok(url) = std::env::var("VITE_SERVER_URL")
-                {
-                    (url, true)
-                } else if let Some(url) = GeneralSettingsStore::get(&app)
-                    .ok()
-                    .flatten()
-                    .map(|v| v.server_url.clone())
-                {
-                    (url, false)
-                } else {
-                    (
-                        option_env!("VITE_SERVER_URL")
-                            .unwrap_or("https://cap.so")
-                            .to_string(),
-                        true,
-                    )
-                };
-
-                // This ensures settings reflects the correct value if it's set at startup
-                if should_update {
-                    GeneralSettingsStore::update(&app, |s| {
-                        s.server_url = server_url.clone();
-                    })
-                    .map_err(|err| warn!("Error updating server URL into settings store: {err}"))
-                    .ok();
-                }
-
-
                 let camera_preview = CameraPreviewManager::new(&app);
                 let camera_session_id_handle = camera_preview.session_id_handle();
 
@@ -5405,8 +4928,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                     camera_in_use: false,
                     camera_cleanup_done: false,
                     camera_feed,
-                    server_url,
-                    logs_dir: logs_dir.clone(),
                     disconnected_inputs: HashSet::new(),
                     was_camera_only_recording: false,
                 })));
@@ -5454,9 +4975,9 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             tokio::spawn({
                 let app = app.clone();
                 async move {
-                    resume_uploads(app)
+                    mark_crashed_recordings_failed(app)
                         .await
-                        .map_err(|err| warn!("Error resuming uploads: {err}"))
+                        .map_err(|err| warn!("Error marking crashed recordings: {err}"))
                         .ok();
                 }
             });
@@ -5515,7 +5036,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                         }),
                         mode: event.mode,
                         capture_system_audio: settings.system_audio,
-                        organization_id: settings.organization_id,
                     }
                 })
                 .await;
@@ -6299,7 +5819,7 @@ fn reopen_main_window(app: &AppHandle) {
     }
 }
 
-async fn resume_uploads(app: AppHandle) -> Result<(), String> {
+async fn mark_crashed_recordings_failed(app: AppHandle) -> Result<(), String> {
     let mut entries = Vec::new();
     for recordings_dir in recordings_locations::known_recordings_dirs(&app) {
         let Ok(dir_entries) = std::fs::read_dir(&recordings_dir) else {
@@ -6340,198 +5860,6 @@ async fn resume_uploads(app: AppHandle) -> Result<(), String> {
                 // Save the updated meta if we made changes
                 if needs_save && let Err(err) = meta.save_for_project() {
                     error!("Failed to save recording meta for {path:?}: {err}");
-                }
-
-                // Handle upload resumption
-                if let Some(upload_meta) = meta.upload {
-                    match upload_meta {
-                        UploadMeta::MultipartUpload {
-                            video_id: _,
-                            file_path,
-                            pre_created_video,
-                            recording_dir,
-                        } => {
-                            InstantMultipartUpload::spawn(
-                                app.clone(),
-                                file_path,
-                                pre_created_video,
-                                recording_dir,
-                                None,
-                            );
-                        }
-                        UploadMeta::SinglePartUpload {
-                            video_id,
-                            file_path,
-                            screenshot_path,
-                            recording_dir,
-                        } => {
-                            let app = app.clone();
-                            tokio::spawn(async move {
-                                if let Ok(meta) = build_video_meta(&file_path)
-                                    .map_err(|error| {
-                                        error!("Failed to resume video upload. error getting video metadata: {error}");
-
-                                        if let Ok(mut meta) = RecordingMeta::load_for_project(&recording_dir).map_err(|err| error!("Error loading project metadata: {err}")) {
-                                            meta.upload = Some(UploadMeta::Failed { error });
-                                            meta.save_for_project().map_err(|err| error!("Error saving project metadata: {err}")).ok();
-                                        }
-                                    })
-                                    && let Ok(uploaded_video) = upload_video(
-                                        &app,
-                                        video_id,
-                                        file_path,
-                                        screenshot_path,
-                                        meta,
-                                        None,
-                                    )
-                                    .await
-                                    .map_err(|error| {
-                                        error!("Error completing resumed upload for video: {error}");
-
-                                        if let Ok(mut meta) = RecordingMeta::load_for_project(&recording_dir).map_err(|err| error!("Error loading project metadata: {err}")) {
-                                            meta.upload = Some(UploadMeta::Failed { error: error.to_string() });
-                                            meta.save_for_project().map_err(|err| error!("Error saving project metadata: {err}")).ok();
-                                        }
-                                    })
-                                    {
-                                        if let Ok(mut meta) = RecordingMeta::load_for_project(&recording_dir).map_err(|err| error!("Error loading project metadata: {err}")) {
-                                            meta.upload = Some(UploadMeta::Complete);
-                                            meta.sharing = Some(SharingMeta {
-                                                link: uploaded_video.link.clone(),
-                                                id: uploaded_video.id.clone(),
-                                                content_hash: None,
-                                            });
-                                            meta.save_for_project()
-                                                .map_err(|e| error!("Failed to save recording meta: {e}"))
-                                                .ok();
-                                        }
-
-                                        let _ = app
-                                            .state::<ArcLock<ClipboardContext>>()
-                                            .write()
-                                            .await
-                                            .set_text(uploaded_video.link.clone());
-                                        NotificationType::ShareableLinkCopied.send(&app);
-                                    }
-                            });
-                        }
-                        UploadMeta::SegmentUpload {
-                            video_id,
-                            pre_created_video,
-                            recording_dir,
-                        } => {
-                            info!(video_id = video_id, "Resuming segment upload on restart");
-                            let content_dir = recording_dir.join("content");
-                            let display_dir = content_dir.join("display");
-                            let audio_dir = content_dir.join("audio");
-
-                            let (segment_tx, segment_rx) = std::sync::mpsc::channel::<
-                                cap_enc_ffmpeg::segmented_stream::SegmentCompletedEvent,
-                            >();
-
-                            use cap_enc_ffmpeg::segmented_stream::{
-                                SegmentCompletedEvent, SegmentMediaType,
-                            };
-
-                            fn read_durations_from_manifest(
-                                dir: &std::path::Path,
-                            ) -> std::collections::HashMap<u32, f64> {
-                                let manifest_path = dir.join("manifest.json");
-                                let mut map = std::collections::HashMap::new();
-                                if let Ok(text) = std::fs::read_to_string(&manifest_path)
-                                    && let Ok(v) = serde_json::from_str::<serde_json::Value>(&text)
-                                    && let Some(segments) =
-                                        v.get("segments").and_then(|s| s.as_array())
-                                {
-                                    for seg in segments {
-                                        if let Some(index) =
-                                            seg.get("index").and_then(|i| i.as_u64())
-                                            && let Some(duration) =
-                                                seg.get("duration").and_then(|d| d.as_f64())
-                                            && seg
-                                                .get("is_complete")
-                                                .and_then(|c| c.as_bool())
-                                                .unwrap_or(false)
-                                        {
-                                            map.insert(index as u32, duration);
-                                        }
-                                    }
-                                }
-                                map
-                            }
-
-                            let scan_and_send = |dir: &std::path::Path,
-                                                 media_type: SegmentMediaType,
-                                                 tx: &std::sync::mpsc::Sender<
-                                SegmentCompletedEvent,
-                            >| {
-                                if !dir.exists() {
-                                    return;
-                                }
-                                let durations = read_durations_from_manifest(dir);
-                                let init_path = dir.join("init.mp4");
-                                if init_path.exists()
-                                    && let Ok(meta) = std::fs::metadata(&init_path)
-                                {
-                                    let _ = tx.send(SegmentCompletedEvent {
-                                        path: init_path,
-                                        index: 0,
-                                        duration: 0.0,
-                                        file_size: meta.len(),
-                                        is_init: true,
-                                        media_type,
-                                    });
-                                }
-                                if let Ok(entries) = std::fs::read_dir(dir) {
-                                    let mut segments: Vec<_> = entries
-                                        .filter_map(|e| e.ok())
-                                        .filter(|e| {
-                                            e.path().extension().is_some_and(|ext| ext == "m4s")
-                                        })
-                                        .collect();
-                                    segments.sort_by_key(|e| e.file_name());
-                                    for entry in segments {
-                                        let path = entry.path();
-                                        if let Some(name) =
-                                            path.file_name().and_then(|n| n.to_str())
-                                            && let Some(idx_str) = name
-                                                .strip_prefix("segment_")
-                                                .and_then(|s| s.strip_suffix(".m4s"))
-                                            && let Ok(index) = idx_str.parse::<u32>()
-                                        {
-                                            let file_size = std::fs::metadata(&path)
-                                                .map(|m| m.len())
-                                                .unwrap_or(0);
-                                            let duration =
-                                                durations.get(&index).copied().unwrap_or(3.0);
-                                            let _ = tx.send(SegmentCompletedEvent {
-                                                path,
-                                                index,
-                                                duration,
-                                                file_size,
-                                                is_init: false,
-                                                media_type,
-                                            });
-                                        }
-                                    }
-                                }
-                            };
-
-                            scan_and_send(&display_dir, SegmentMediaType::Video, &segment_tx);
-                            scan_and_send(&audio_dir, SegmentMediaType::Audio, &segment_tx);
-                            drop(segment_tx);
-
-                            crate::upload::SegmentUploader::spawn(
-                                app.clone(),
-                                video_id,
-                                segment_rx,
-                                None,
-                                recording_dir,
-                                pre_created_video,
-                            );
-                        }
-                        UploadMeta::Failed { .. } | UploadMeta::Complete => {}
-                    }
                 }
             }
         }
@@ -6863,41 +6191,6 @@ fn open_project_from_path(path: &Path, app: AppHandle) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod screenshot_share_cache_tests {
-    use super::*;
-
-    fn sharing(content_hash: Option<&str>) -> SharingMeta {
-        SharingMeta {
-            id: String::from("video-id"),
-            link: String::from("https://cap.so/s/video-id"),
-            content_hash: content_hash.map(str::to_string),
-        }
-    }
-
-    #[test]
-    fn reuses_link_when_content_hash_matches() {
-        let link =
-            screenshot_share_link_for_hash(Some(&sharing(Some("hash-a"))), "hash-a").unwrap();
-
-        assert_eq!(link, "https://cap.so/s/video-id");
-    }
-
-    #[test]
-    fn does_not_reuse_link_when_content_hash_changed() {
-        let link = screenshot_share_link_for_hash(Some(&sharing(Some("hash-a"))), "hash-b");
-
-        assert!(link.is_none());
-    }
-
-    #[test]
-    fn does_not_reuse_legacy_link_without_content_hash() {
-        let link = screenshot_share_link_for_hash(Some(&sharing(None)), "hash-a");
-
-        assert!(link.is_none());
-    }
 }
 
 #[cfg(test)]
