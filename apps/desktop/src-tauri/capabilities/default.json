@@ -2,7 +2,9 @@
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
 	"description": "Capability for the main window",
-	"windows": ["*"],
+	"windows": [
+		"*"
+	],
 	"permissions": [
 		"fs:default",
 		"fs:allow-resource-read",
@@ -15,9 +17,15 @@
 		{
 			"identifier": "fs:scope",
 			"allow": [
-				{ "path": "$APPDATA/**" },
-				{ "path": "$HOME/**" },
-				{ "path": "$RESOURCE/**" }
+				{
+					"path": "$APPDATA/**"
+				},
+				{
+					"path": "$HOME/**"
+				},
+				{
+					"path": "$RESOURCE/**"
+				}
 			]
 		},
 		"core:path:allow-resolve-directory",
@@ -56,16 +64,21 @@
 		"dialog:default",
 		"store:default",
 		"process:default",
-		"oauth:allow-start",
 		"updater:default",
 		"notification:default",
 		"deep-link:default",
 		{
 			"identifier": "http:default",
 			"allow": [
-				{ "url": "http://*" },
-				{ "url": "https://*" },
-				{ "url": "http://localhost:*" }
+				{
+					"url": "http://*"
+				},
+				{
+					"url": "https://*"
+				},
+				{
+					"url": "http://localhost:*"
+				}
 			]
 		},
 		"clipboard-manager:allow-write-text",

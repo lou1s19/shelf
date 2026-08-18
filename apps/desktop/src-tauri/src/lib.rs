@@ -4790,7 +4790,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_oauth::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
@@ -4817,7 +4816,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                     CapWindowId::Camera.label().as_str(),
                     CapWindowId::RecordingsOverlay.label().as_str(),
                     CapWindowId::RecordingControls.label().as_str(),
-                    CapWindowId::Upgrade.label().as_str(),
                     "editor",
                     "screenshot-editor",
                 ])
@@ -5333,7 +5331,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                                 #[cfg(target_os = "macos")]
                                 return;
                             }
-                            CapWindowId::Upgrade | CapWindowId::ModeSelect => {
+                            CapWindowId::ModeSelect => {
                                 restore_main_and_target_select_windows(app);
                                 restore_camera_window(app);
                                 #[cfg(target_os = "macos")]
@@ -5388,7 +5386,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 WindowEvent::Focused(focused) => {
                     let window_id = CapWindowId::from_str(label);
 
-                    if matches!(window_id, Ok(CapWindowId::Upgrade)) {
+{
                         for (label, window) in app.webview_windows() {
                             if let Ok(id) = CapWindowId::from_str(&label)
                                 && matches!(id, CapWindowId::TargetSelectOverlay { .. })

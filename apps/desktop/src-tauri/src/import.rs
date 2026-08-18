@@ -1758,10 +1758,10 @@ async fn append_cap_project_to_editor_project(
                     .await
             }
             RecordingMetaInner::Instant(InstantRecordingMeta::InProgress { .. }) => {
-                Err("Source Cap project is still recording".to_string())
+                Err("Source project is still recording".to_string())
             }
             RecordingMetaInner::Instant(InstantRecordingMeta::Failed { error }) => {
-                Err(format!("Source Cap project failed: {error}"))
+                Err(format!("Source project failed: {error}"))
             }
             RecordingMetaInner::Studio(_) => unreachable!(),
         };
@@ -1769,7 +1769,7 @@ async fn append_cap_project_to_editor_project(
 
     let source_segments = studio_segments_for_import(source_studio_meta);
     if source_segments.is_empty() {
-        return Err("Source Cap project has no recording segments".to_string());
+        return Err("Source project has no recording segments".to_string());
     }
 
     let source_timeline = source_timeline_segments_for_import(&source_meta, &source_segments)?;
@@ -1830,7 +1830,7 @@ async fn append_cap_project_to_editor_project(
     };
 
     if copied_segments.is_empty() {
-        return Err("Source Cap project has no importable recording segments".to_string());
+        return Err("Source project has no importable recording segments".to_string());
     }
 
     {

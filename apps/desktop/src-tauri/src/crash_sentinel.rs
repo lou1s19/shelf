@@ -287,7 +287,7 @@ fn report_unexpected_termination(prev: &SessionRecord) {
         prev_graphics_recovery = prev.graphics_recovery,
         prev_blur_active = prev.blur_active,
         prev_blur_recovery = prev.blur_recovery,
-        "Previous Cap session terminated without a clean shutdown"
+        "Previous Shelf session terminated without a clean shutdown"
     );
 
 }

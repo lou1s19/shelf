@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use tauri::{Manager, Window, Wry};
 use tracing::instrument;
 
-/// Only files Cap itself produced may be dragged out. Without this a compromised
+/// Only files Shelf itself produced may be dragged out. Without this a compromised
 /// webview could hand any readable file on the machine to another app.
 fn is_allowed(app: &tauri::AppHandle<Wry>, path: &Path) -> bool {
     let Ok(path) = path.canonicalize() else {
@@ -34,7 +34,7 @@ pub async fn start_file_drag(window: Window<Wry>, path: PathBuf) -> Result<(), S
 
     if !is_allowed(&app, &path) {
         return Err(format!(
-            "Refusing to drag a file outside Cap's own folders: {}",
+            "Refusing to drag a file outside Shelf's own folders: {}",
             path.display()
         ));
     }
