@@ -126,11 +126,6 @@ pub fn init(logs_dir: &Path, app_version: &str) -> Option<UnexpectedTermination>
 
     write_record(&path, &record);
 
-    sentry::configure_scope(|scope| {
-        scope.set_tag("os.full", &os);
-        scope.set_tag("arch", &arch);
-        scope.set_tag("app.version", app_version);
-    });
 
     *SESSION.lock().unwrap() = Some(ActiveSession {
         path,
@@ -240,9 +235,6 @@ pub fn mark_blur_recovery() {
         write_record(&session.path, &session.record);
     }
 
-    sentry::configure_scope(|scope| {
-        scope.set_tag("camera_blur_recovery", "true");
-    });
 }
 
 /// Record that this session is running in software-graphics recovery mode, so an
@@ -257,9 +249,6 @@ pub fn mark_graphics_recovery() {
         write_record(&session.path, &session.record);
     }
 
-    sentry::configure_scope(|scope| {
-        scope.set_tag("graphics_recovery", "true");
-    });
 }
 
 /// Record the result of the macOS Liquid Glass material attempt so that, if this
@@ -275,9 +264,6 @@ pub fn set_liquid_glass_outcome(outcome: &str) {
         write_record(&session.path, &session.record);
     }
 
-    sentry::configure_scope(|scope| {
-        scope.set_tag("macos_liquid_glass", outcome);
-    });
 }
 
 /// Disarm the sentinel after a fully graceful shutdown. If this is never reached (the
@@ -304,27 +290,6 @@ fn report_unexpected_termination(prev: &SessionRecord) {
         "Previous Cap session terminated without a clean shutdown"
     );
 
-    sentry::with_scope(
-        |scope| {
-            scope.set_tag("unexpected_termination", "true");
-            scope.set_tag("prev.os", &prev.os);
-            scope.set_tag("prev.arch", &prev.arch);
-            scope.set_tag("prev.app_version", &prev.app_version);
-            scope.set_tag("prev.macos_liquid_glass", &prev.liquid_glass);
-            scope.set_tag("prev.gpu_init_phase", prev.gpu_init_phase.to_string());
-            scope.set_tag("prev.graphics_recovery", prev.graphics_recovery.to_string());
-            scope.set_tag("prev.blur_active", prev.blur_active.to_string());
-            scope.set_tag("prev.blur_recovery", prev.blur_recovery.to_string());
-            scope.set_extra("prev.pid", prev.pid.into());
-            scope.set_extra("prev.started_at", prev.started_at.clone().into());
-        },
-        || {
-            sentry::capture_message(
-                "Cap session terminated unexpectedly (no clean shutdown)",
-                sentry::Level::Error,
-            );
-        },
-    );
 }
 
 fn process_is_running(pid: u32) -> bool {

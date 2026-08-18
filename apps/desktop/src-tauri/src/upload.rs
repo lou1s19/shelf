@@ -4,7 +4,6 @@ use crate::{
     UploadProgress, VideoUploadInfo,
     api::{self, PresignedS3PutRequest, PresignedS3PutRequestMethod, S3VideoMeta, UploadedPart},
     http_client::{HttpClient, RetryableHttpClient},
-    telemetry::{AnalyticsEvent, async_capture_event},
     web_api::{AuthedApiError, ManagerExt},
 };
 use async_stream::{stream, try_stream};
@@ -214,25 +213,6 @@ pub async fn upload_video(
 
     emit_upload_complete(app, &video_id);
 
-    async_capture_event(
-        app,
-        match &video_result {
-            Ok(meta) => AnalyticsEvent::MultipartUploadComplete {
-                duration: start.elapsed(),
-                length: meta
-                    .as_ref()
-                    .map(|v| Duration::from_secs(v.duration_in_secs as u64))
-                    .unwrap_or_default(),
-                size: std::fs::metadata(file_path)
-                    .map(|m| ((m.len() as f64) / 1_000_000.0) as u64)
-                    .unwrap_or_default(),
-            },
-            Err(err) => AnalyticsEvent::MultipartUploadFailed {
-                duration: start.elapsed(),
-                error: err.to_string(),
-            },
-        },
-    );
 
     let _ = (video_result?, thumbnail_result?);
 
@@ -551,25 +531,6 @@ impl InstantMultipartUpload {
                     realtime_upload_done,
                 )
                 .await;
-                async_capture_event(
-                    &app,
-                    match &result {
-                        Ok(meta) => AnalyticsEvent::MultipartUploadComplete {
-                            duration: start.elapsed(),
-                            length: meta
-                                .as_ref()
-                                .map(|v| Duration::from_secs(v.duration_in_secs as u64))
-                                .unwrap_or_default(),
-                            size: std::fs::metadata(file_path)
-                                .map(|m| ((m.len() as f64) / 1_000_000.0) as u64)
-                                .unwrap_or_default(),
-                        },
-                        Err(err) => AnalyticsEvent::MultipartUploadFailed {
-                            duration: start.elapsed(),
-                            error: err.to_string(),
-                        },
-                    },
-                );
 
                 result.map(|_| ())
             }),
@@ -894,20 +855,6 @@ impl SegmentUploader {
                 )
                 .await;
 
-                async_capture_event(
-                    &app,
-                    match &result {
-                        Ok(total_bytes) => AnalyticsEvent::MultipartUploadComplete {
-                            duration: start.elapsed(),
-                            length: start.elapsed(),
-                            size: total_bytes / (1024 * 1024),
-                        },
-                        Err(err) => AnalyticsEvent::MultipartUploadFailed {
-                            duration: start.elapsed(),
-                            error: err.to_string(),
-                        },
-                    },
-                );
 
                 result.map(|_| ())
             }),

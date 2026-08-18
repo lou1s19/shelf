@@ -40,7 +40,6 @@ mod recordings_locations;
 mod recovery;
 mod screenshot_editor;
 mod target_select_overlay;
-mod telemetry;
 mod thumbnails;
 mod tray;
 mod update_project_names;
@@ -2172,11 +2171,6 @@ async fn cleanup_app_resources_for_exit(app: &AppHandle) {
 #[cfg(target_os = "macos")]
 fn finalize_app_exit(app: &AppHandle, exit_code: i32) -> ! {
     let _ = app;
-    sentry::Hub::with(|hub| {
-        if let Some(client) = hub.client() {
-            let _ = client.flush(Some(Duration::from_millis(250)));
-        }
-    });
     match app_exit_action(exit_code) {
         AppExitAction::Process(code) => force_exit(code),
     }
@@ -4549,7 +4543,6 @@ async fn check_notification_permissions(app: AppHandle) {
 #[instrument(skip(app))]
 async fn set_server_url(app: MutableState<'_, App>, server_url: String) -> Result<(), ()> {
     let mut app = app.write().await;
-    telemetry::set_server_url(&server_url);
     app.server_url = server_url;
 
     Ok(())
@@ -5132,7 +5125,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
         camera::init_preview_profile(system.total_memory());
     }
 
-    telemetry::init();
 
     let tauri_context = tauri::generate_context!();
 
@@ -5363,12 +5355,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             });
 
             if let Ok(Some(auth)) = AuthStore::load(&app) {
-                sentry::configure_scope(|scope| {
-                    scope.set_user(auth.user_id.map(|id| sentry::User {
-                        id: Some(id),
-                        ..Default::default()
-                    }));
-                });
             }
 
             {
@@ -5400,7 +5386,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                     .ok();
                 }
 
-                telemetry::set_server_url(&server_url);
 
                 let camera_preview = CameraPreviewManager::new(&app);
                 let camera_session_id_handle = camera_preview.session_id_handle();
@@ -6010,10 +5995,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             if let Err(panic) = result {
                 let message = panic_payload_message(&panic);
                 tracing::error!(panic = %message, "Suppressed panic in Tauri WindowEvent handler");
-                sentry::capture_message(
-                    &format!("Tauri WindowEvent panic suppressed: {message}"),
-                    sentry::Level::Error,
-                );
             }
         })
         .build(tauri_context)
@@ -6026,10 +6007,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             if let Err(panic) = result {
                 let message = panic_payload_message(&panic);
                 tracing::error!(panic = %message, "Suppressed panic in Tauri RunEvent handler");
-                sentry::capture_message(
-                    &format!("Tauri RunEvent panic suppressed: {message}"),
-                    sentry::Level::Error,
-                );
             }
         });
 }
@@ -6060,10 +6037,6 @@ where
                 command = command_name,
                 panic = %message,
                 "Suppressed panic in Tauri command"
-            );
-            sentry::capture_message(
-                &format!("Tauri command '{command_name}' panicked: {message}"),
-                sentry::Level::Error,
             );
             Err(format!("{command_name} failed unexpectedly"))
         }
