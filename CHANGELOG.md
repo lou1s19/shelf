@@ -4,6 +4,12 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 
 ## Offen
 
+Die vollständige Liste mit Begründungen steht in `TODO.md`. Kurz:
+Vorschau-Fenster beim Text-Kürzel, Oberfläche aufräumen (Louis findet sie
+unübersichtlich, welcher Bildschirm genau ist noch zu klären), eigener
+Update-Weg.
+
+
 - **Deep-Link-Schema** heißt weiter `cap-desktop`. Kann jetzt umbenannt werden,
   die Anmeldung über cap.so hängt nicht mehr dran.
 - **Update-Weg fehlt.** Der Updater ist ein Platzhalter, neue Versionen werden
