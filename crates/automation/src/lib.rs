@@ -13,9 +13,7 @@ pub struct TriggerContext {
     pub capture_target: Option<CaptureTargetKind>,
     pub recording_mode: Option<AutomationRecordingMode>,
     pub duration_secs: Option<f64>,
-    pub share_link: Option<String>,
     pub share_id: Option<String>,
-    pub organization_id: Option<String>,
     pub window_title: Option<String>,
 }
 
@@ -28,9 +26,7 @@ impl TriggerContext {
             capture_target: None,
             recording_mode: None,
             duration_secs: None,
-            share_link: None,
             share_id: None,
-            organization_id: None,
             window_title: None,
         }
     }
@@ -65,18 +61,8 @@ impl TriggerContext {
         self
     }
 
-    pub fn with_share_link(mut self, link: String) -> Self {
-        self.share_link = Some(link);
-        self
-    }
-
     pub fn with_share_id(mut self, id: String) -> Self {
         self.share_id = Some(id);
-        self
-    }
-
-    pub fn with_organization_id(mut self, id: String) -> Self {
-        self.organization_id = Some(id);
         self
     }
 
@@ -97,7 +83,6 @@ pub enum Capability {
     CopyToClipboard,
     SaveToLocation,
     Export,
-    Upload,
     RevealInFileManager,
     OpenFile,
     RunCommand,
@@ -118,7 +103,6 @@ impl Action {
             Action::CopyToClipboard { .. } => Capability::CopyToClipboard,
             Action::SaveToLocation { .. } => Capability::SaveToLocation,
             Action::Export { .. } => Capability::Export,
-            Action::Upload { .. } => Capability::Upload,
             Action::RevealInFileManager => Capability::RevealInFileManager,
             Action::OpenFile => Capability::OpenFile,
             Action::RunCommand { .. } => Capability::RunCommand,
@@ -170,10 +154,6 @@ fn evaluate_condition(condition: &Condition, ctx: &TriggerContext) -> bool {
             .window_title
             .as_ref()
             .is_some_and(|t| t.to_lowercase().contains(&pattern.to_lowercase())),
-        // Reserved for future per-organization filtering: no trigger currently populates
-        // `organization_id`, and the desktop UI hides this condition (CONDITION_REQUIRES maps it to
-        // null), so this arm stays inert until org context is plumbed through the trigger pipeline.
-        Condition::OrganizationIs { id } => ctx.organization_id.as_ref() == Some(id),
     }
 }
 
@@ -198,14 +178,6 @@ pub trait AutomationHost: Send + Sync {
         ctx: &TriggerContext,
         profile: &ExportProfile,
         destination: &ExportDestination,
-    ) -> impl std::future::Future<Output = Result<(), String>> + Send;
-
-    fn upload(
-        &self,
-        ctx: &TriggerContext,
-        organization_id: Option<&str>,
-        copy_link: bool,
-        open_in_browser: bool,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 
     fn reveal_in_file_manager(
@@ -370,19 +342,6 @@ async fn execute_action<H: AutomationHost>(
             profile,
             destination,
         } => host.export(ctx, profile, destination).await,
-        Action::Upload {
-            organization_id,
-            copy_link,
-            open_in_browser,
-        } => {
-            host.upload(
-                ctx,
-                organization_id.as_deref(),
-                *copy_link,
-                *open_in_browser,
-            )
-            .await
-        }
         Action::RevealInFileManager => host.reveal_in_file_manager(ctx).await,
         Action::OpenFile => host.open_file(ctx).await,
         Action::RunCommand {

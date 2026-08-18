@@ -48,7 +48,6 @@ import IconLucideChevronDown from "~icons/lucide/chevron-down";
 import IconLucideChevronUp from "~icons/lucide/chevron-up";
 import IconLucideCirclePlay from "~icons/lucide/circle-play";
 import IconLucideClapperboard from "~icons/lucide/clapperboard";
-import IconLucideCloudUpload from "~icons/lucide/cloud-upload";
 import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideFilm from "~icons/lucide/film";
 import IconLucideFolderDown from "~icons/lucide/folder-down";
@@ -103,7 +102,6 @@ const TRIGGER_ICONS: Record<Trigger, IconComponent> = {
 	studioRecordingFinished: IconLucideClapperboard,
 	instantRecordingFinished: IconLucideZap,
 	recordingStarted: IconLucideCirclePlay,
-	uploadCompleted: IconLucideCloudUpload,
 	videoImported: IconLucideImport,
 	recordingDeleted: IconLucideTrash2,
 };
@@ -113,7 +111,6 @@ const TRIGGER_PHRASE: Record<Trigger, string> = {
 	studioRecordingFinished: "Studio recording ends",
 	instantRecordingFinished: "Instant recording ends",
 	recordingStarted: "Recording starts",
-	uploadCompleted: "Upload completes",
 	videoImported: "Video imported",
 	recordingDeleted: "Recording deleted",
 };
@@ -122,7 +119,6 @@ const ACTION_SHORT: Record<ActionType, string> = {
 	copyToClipboard: "Copy to clipboard",
 	saveToLocation: "Save to folder",
 	export: "Export",
-	upload: "Upload & copy link",
 	revealInFileManager: "Reveal in file manager",
 	openFile: "Open file",
 	recognizeTextToClipboard: "Copy text (OCR)",
@@ -140,7 +136,6 @@ const TRIGGER_NOUN: Record<Trigger, string> = {
 	studioRecordingFinished: "Studio recording",
 	instantRecordingFinished: "Instant recording",
 	recordingStarted: "Recording start",
-	uploadCompleted: "Upload",
 	videoImported: "Import",
 	recordingDeleted: "Deletion",
 };
@@ -149,7 +144,6 @@ const ACTION_NOUN: Record<ActionType, string> = {
 	copyToClipboard: "Clipboard",
 	saveToLocation: "Folder",
 	export: "Export",
-	upload: "Upload",
 	revealInFileManager: "Reveal",
 	openFile: "Open",
 	recognizeTextToClipboard: "Text",

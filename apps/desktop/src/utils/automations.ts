@@ -53,7 +53,6 @@ export const TRIGGER_LABELS: Record<Trigger, string> = {
 	studioRecordingFinished: "On studio recording finished",
 	instantRecordingFinished: "On instant recording finished",
 	recordingStarted: "On recording started",
-	uploadCompleted: "On upload completed",
 	videoImported: "On video imported",
 	recordingDeleted: "On recording deleted",
 };
@@ -62,7 +61,6 @@ export const ACTION_LABELS: Record<ActionType, string> = {
 	copyToClipboard: "Copy to clipboard",
 	saveToLocation: "Save to location",
 	export: "Export with profile",
-	upload: "Upload + copy link",
 	revealInFileManager: "Reveal in file manager",
 	openFile: "Open file",
 	runCommand: "Run command",
@@ -81,7 +79,6 @@ export const CONDITION_LABELS: Record<Condition["type"], string> = {
 	durationAtLeast: "Duration at least (seconds)",
 	durationAtMost: "Duration at most (seconds)",
 	windowTitleContains: "Window title contains",
-	organizationIs: "Organization is",
 };
 
 export const DANGEROUS_ACTIONS: ActionType[] = ["runCommand", "webhook"];
@@ -102,7 +99,6 @@ const TRIGGER_CONTEXT: Record<Trigger, readonly TriggerContextField[]> = {
 	studioRecordingFinished: ["recordingMode", "duration", "projectPath"],
 	instantRecordingFinished: ["recordingMode", "projectPath"],
 	recordingStarted: [],
-	uploadCompleted: ["projectPath"],
 	videoImported: ["projectPath"],
 	recordingDeleted: ["projectPath"],
 };
@@ -116,7 +112,6 @@ const CONDITION_REQUIRES: Record<
 	durationAtLeast: "duration",
 	durationAtMost: "duration",
 	windowTitleContains: "windowTitle",
-	organizationIs: null,
 };
 
 // Each action lists the context fields it can consume; it applies when the trigger provides at least
@@ -179,13 +174,6 @@ export function defaultActionForType(type: ActionType): Action {
 				},
 				destination: "projectFolder",
 			};
-		case "upload":
-			return {
-				type,
-				organizationId: null,
-				copyLink: true,
-				openInBrowser: false,
-			};
 		case "revealInFileManager":
 			return { type };
 		case "openFile":
@@ -234,8 +222,6 @@ export function defaultConditionForType(type: Condition["type"]): Condition {
 			return { type, secs: 300 };
 		case "windowTitleContains":
 			return { type, pattern: "" };
-		case "organizationIs":
-			return { type, id: "" };
 	}
 }
 

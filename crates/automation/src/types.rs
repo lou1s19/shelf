@@ -48,7 +48,6 @@ pub enum Trigger {
     StudioRecordingFinished,
     InstantRecordingFinished,
     RecordingStarted,
-    UploadCompleted,
     VideoImported,
     RecordingDeleted,
 }
@@ -61,7 +60,6 @@ pub enum Condition {
     DurationAtLeast { secs: f64 },
     DurationAtMost { secs: f64 },
     WindowTitleContains { pattern: String },
-    OrganizationIs { id: String },
 }
 
 #[derive(Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,15 +94,6 @@ pub enum Action {
         profile: ExportProfile,
         #[serde(default)]
         destination: ExportDestination,
-    },
-    #[serde(rename_all = "camelCase")]
-    Upload {
-        #[serde(default)]
-        organization_id: Option<String>,
-        #[serde(default = "default_true")]
-        copy_link: bool,
-        #[serde(default)]
-        open_in_browser: bool,
     },
     RevealInFileManager,
     OpenFile,

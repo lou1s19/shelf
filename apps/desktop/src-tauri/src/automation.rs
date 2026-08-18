@@ -175,16 +175,6 @@ impl AutomationHost for DesktopAutomationHost {
         Ok(())
     }
 
-    async fn upload(
-        &self,
-        _ctx: &TriggerContext,
-        _organization_id: Option<&str>,
-        _copy_link: bool,
-        _open_in_browser: bool,
-    ) -> Result<(), String> {
-        Err("Uploading is not supported in this build".to_string())
-    }
-
     async fn reveal_in_file_manager(&self, ctx: &TriggerContext) -> Result<(), String> {
         let path = ctx
             .image_path
@@ -262,9 +252,6 @@ impl AutomationHost for DesktopAutomationHost {
         if let Some(ref p) = ctx.output_path {
             cmd.env("CAP_OUTPUT_PATH", p);
         }
-        if let Some(ref l) = ctx.share_link {
-            cmd.env("CAP_SHARE_LINK", l);
-        }
 
         // Kill the child if the timeout drops the future, so a hung command can't outlive the run.
         cmd.kill_on_drop(true);
@@ -306,7 +293,6 @@ impl AutomationHost for DesktopAutomationHost {
                 "project_path": ctx.project_path,
                 "image_path": ctx.image_path,
                 "output_path": ctx.output_path,
-                "share_link": ctx.share_link,
             }))
             .map_err(|e| format!("Failed to serialize webhook body: {e}"))?
         };
@@ -541,9 +527,6 @@ fn apply_body_template(template: &str, ctx: &TriggerContext) -> String {
     }
     if let Some(ref p) = ctx.output_path {
         result = result.replace("{output_path}", &p.to_string_lossy());
-    }
-    if let Some(ref l) = ctx.share_link {
-        result = result.replace("{share_link}", l);
     }
     result
 }

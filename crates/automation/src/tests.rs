@@ -58,17 +58,6 @@ impl AutomationHost for MockHost {
         Ok(())
     }
 
-    async fn upload(
-        &self,
-        _ctx: &TriggerContext,
-        _org: Option<&str>,
-        _copy: bool,
-        _open: bool,
-    ) -> Result<(), String> {
-        self.record("upload");
-        Ok(())
-    }
-
     async fn reveal_in_file_manager(&self, _ctx: &TriggerContext) -> Result<(), String> {
         self.record("reveal");
         Ok(())
@@ -487,9 +476,6 @@ fn serialize_all_condition_and_action_shapes_roundtrip() {
             Condition::WindowTitleContains {
                 pattern: "slack".to_string(),
             },
-            Condition::OrganizationIs {
-                id: "org_1".to_string(),
-            },
         ],
         actions: vec![
             Action::CopyToClipboard {
@@ -511,11 +497,6 @@ fn serialize_all_condition_and_action_shapes_roundtrip() {
                     dir: "/tmp/out".to_string(),
                 },
             },
-            Action::Upload {
-                organization_id: Some("org_1".to_string()),
-                copy_link: true,
-                open_in_browser: false,
-            },
             Action::RevealInFileManager,
             Action::OpenFile,
             Action::RunCommand {
@@ -529,7 +510,7 @@ fn serialize_all_condition_and_action_shapes_roundtrip() {
                 url: "https://example.com/hook".to_string(),
                 method: "POST".to_string(),
                 headers: HashMap::new(),
-                body_template: Some("{share_link}".to_string()),
+                body_template: Some("{output_path}".to_string()),
             },
             Action::RecognizeTextToClipboard,
             Action::Notify {
@@ -560,24 +541,21 @@ fn serialize_all_condition_and_action_shapes_roundtrip() {
     let actions = &json["rules"][0]["actions"];
     assert_eq!(actions[0]["type"], "copyToClipboard");
     assert_eq!(actions[0]["source"], "rendered");
-    assert_eq!(actions[4]["type"], "revealInFileManager");
+    assert_eq!(actions[3]["type"], "revealInFileManager");
 
     // Struct-variant fields must serialize camelCase to match the desktop+CLI frontends; serde's
     // enum-level rename_all does not cover variant fields, so each multi-word variant carries its own.
     assert_eq!(actions[1]["type"], "saveToLocation");
     assert!(actions[1].get("filenameTemplate").is_some());
     assert!(actions[1].get("filename_template").is_none());
-    assert!(actions[3].get("organizationId").is_some());
-    assert!(actions[3].get("copyLink").is_some());
-    assert!(actions[3].get("openInBrowser").is_some());
-    assert!(actions[6].get("useShell").is_some());
-    assert!(actions[7].get("bodyTemplate").is_some());
-    assert!(actions[9].get("titleTemplate").is_some());
+    assert!(actions[5].get("useShell").is_some());
+    assert!(actions[6].get("bodyTemplate").is_some());
+    assert!(actions[8].get("titleTemplate").is_some());
 
     let parsed: AutomationsStore = serde_json::from_value(json).unwrap();
     assert_eq!(parsed.rules.len(), 1);
-    assert_eq!(parsed.rules[0].conditions.len(), 6);
-    assert_eq!(parsed.rules[0].actions.len(), 14);
+    assert_eq!(parsed.rules[0].conditions.len(), 5);
+    assert_eq!(parsed.rules[0].actions.len(), 13);
 }
 
 #[test]
@@ -610,7 +588,6 @@ fn desktop_capabilities() -> Vec<Capability> {
         Capability::CopyToClipboard,
         Capability::SaveToLocation,
         Capability::Export,
-        Capability::Upload,
         Capability::RevealInFileManager,
         Capability::OpenFile,
         Capability::RunCommand,
@@ -627,7 +604,6 @@ fn cli_capabilities() -> Vec<Capability> {
     vec![
         Capability::SaveToLocation,
         Capability::Export,
-        Capability::Upload,
         Capability::RevealInFileManager,
         Capability::OpenFile,
         Capability::RunCommand,
