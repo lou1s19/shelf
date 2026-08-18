@@ -4,17 +4,44 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 
 ## Offen
 
-- **Menüleisten-Icons** sind noch die von Cap (`icons/tray-*.png`, fünf Zustände).
-- **Update-Weg fehlt.** Caps Updater-Endpunkt ist abgeschaltet, weil er Shelf
-  sonst durch Cap-Builds ersetzt hätte. Eigener Release-Feed steht aus.
-- **Texte in der Oberfläche** sagen an vielen Stellen noch „Cap" (rund 120
-  Stellen im Frontend). Fenstertitel und App-Identität sind schon umgestellt.
-- Das Deep-Link-Schema heißt weiter `cap-desktop`. Umbenennen würde die Anmeldung
-  über cap.so zerlegen.
-- `.env.example` fehlt. Für den Desktop-Build reicht bisher eine kleine `.env` im
-  Repo-Root, deren Variablen sind noch nicht dokumentiert.
+- **Deep-Link-Schema** heißt weiter `cap-desktop`. Kann jetzt umbenannt werden,
+  die Anmeldung über cap.so hängt nicht mehr dran.
+- **Update-Weg fehlt.** Der Updater ist ein Platzhalter, neue Versionen werden
+  aus dem Quellcode gebaut.
+- **Sidecar-Binaries** heißen intern noch `cap-cli`, `cap-exporter`, `cap-muxer`.
+  Nicht sichtbar im normalen Betrieb, aber im App-Paket zu finden.
+- **Spracherkennungs-Modelle** werden von `github.com/CapSoftware/transcription-models`
+  geladen. Funktioniert, hängt aber an Caps Repo.
+- Die Dateiendung von Projekten ist weiter `.cap`.
+- `.env.example` fehlt.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
+
+## 2026-08-18 (Trennung von Cap)
+
+Shelf ist ab jetzt eigenständig und lokal. Nichts geht mehr an Cap.
+
+- **Nichts verlässt mehr den Rechner:** Sentry-Absturzmeldungen, OpenPanel-
+  Nutzungsdaten und OpenTelemetry-Traces sind entfernt, samt Abhängigkeiten und
+  `t.cap.so` in der Fenster-Sicherheitsregel.
+- **Updater** zeigte auf Caps CDN und hätte Shelf beim nächsten Release durch Cap
+  ersetzt. Jetzt ein Platzhalter, der nichts abruft.
+- **Konten und Cloud raus:** `auth.rs`, `web_api.rs`, `upload.rs`, `api.rs` und
+  `logging.rs` gelöscht, neun Befehle entfernt (Hochladen, Teilen-Links,
+  Log-Versand, Plan-Abfragen, Server-URL). Cap-Pro-Fenster und OAuth-Plugin weg.
+- **Sofort-Aufnahmen bleiben lokal:** Sie nehmen weiter auf und speichern, nur der
+  Upload ist weg. Die Auflösungs-Sperre, die Cap Pro verlangte, ist ersatzlos weg.
+- **Oberfläche:** Anmelde-Knopf, Teilen-Knopf, Lizenz-, Feedback- und
+  Integrations-Seiten (Google Drive, S3) entfernt.
+- **Repo verkleinert:** Caps Website, Mobile-App, Chrome-Erweiterung, Discord-Bot,
+  Media-Server, Storybook, Web-Cluster und Cloud-Infrastruktur gelöscht, dazu elf
+  Release-Abläufe. Übrig ist eine schlanke CI für die Desktop-App.
+- **Namen:** Aufnahmen heißen `Shelf JJJJ-MM-TT at HH.MM.SS` (alte Cap-Namen
+  werden weiter erkannt), Terminal-Befehl `shelf` in `~/.shelf/bin`, Menüleiste,
+  Absturzhinweis und Import-Meldungen tragen den neuen Namen. Der Browser-Rahmen
+  im Editor brennt kein `cap.so` mehr in exportierte Videos.
+- **Bleibt bewusst:** `LICENSE` (AGPLv3) und `README.cap.md`. Die Lizenz verlangt,
+  dass die Herkunft erkennbar bleibt. Das ist Rechtstext, keine Cap-Werbung.
 
 ## 2026-08-18 (Umbenennung)
 
