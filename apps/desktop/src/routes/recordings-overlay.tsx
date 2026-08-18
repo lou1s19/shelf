@@ -68,7 +68,7 @@ export default function () {
 				if (state.some((entry) => entry.path === path)) return;
 				const fileName = path.split("/").pop() || "";
 				const match = fileName.match(
-					/Cap (\d{4}-\d{2}-\d{2} at \d{2}\.\d{2}\.\d{2})/,
+					/(?:Shelf|Cap) (\d{4}-\d{2}-\d{2} at \d{2}\.\d{2}\.\d{2})/,
 				);
 				const prettyName = match ? match[1].replace(/\./g, ":") : fileName;
 				state.unshift({ path, prettyName, isNew: true, type });
@@ -681,7 +681,7 @@ function createRecordingMutations(
 			}
 
 			const defaultName = isRecording
-				? "Cap Recording"
+				? "Shelf Recording"
 				: media.path.split(".cap/")[1];
 			const suggestedName = meta.pretty_name || defaultName;
 

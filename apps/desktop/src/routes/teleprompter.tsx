@@ -340,7 +340,7 @@ export default function Teleprompter() {
 					<span>
 						{isLinux
 							? "This window may appear in recordings on Linux"
-							: "This window is hidden from Cap recordings"}
+							: "This window is hidden from Shelf recordings"}
 					</span>
 				</div>
 				<Show when={isWindows}>

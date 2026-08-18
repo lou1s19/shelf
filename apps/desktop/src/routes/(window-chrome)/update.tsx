@@ -94,7 +94,7 @@ export default function () {
 								<Match when={updateStatus()?.type === "done"}>
 									<div class="flex flex-col gap-4 items-center">
 										<p class="text-(--text-tertiary)">
-											Update has been installed. Restart Cap to finish updating.
+											Update has been installed. Restart Shelf to finish updating.
 										</p>
 										<Button onClick={() => relaunch()}>Restart Now</Button>
 									</div>

@@ -1769,8 +1769,8 @@ function createUpdateCheck() {
 		let shouldUpdate: boolean | undefined;
 		try {
 			shouldUpdate = await dialog.confirm(
-				`Version ${update.version} of Cap is available, would you like to install it?`,
-				{ title: "Update Cap", okLabel: "Update", cancelLabel: "Ignore" },
+				`Version ${update.version} of Shelf is available, would you like to install it?`,
+				{ title: "Update Shelf", okLabel: "Update", cancelLabel: "Ignore" },
 			);
 		} catch (e) {
 			console.error("Failed to show update dialog:", e);
@@ -1793,8 +1793,8 @@ function createUpdateReadyToast() {
 				<div class="flex flex-col gap-2.5 px-4 py-3 rounded-xl border shadow-lg bg-gray-1 border-gray-4 text-gray-12 w-[min(24rem,calc(100vw-2rem))]">
 					<p class="text-sm">
 						{update.installed
-							? `Cap ${update.version} has been installed — restart to apply`
-							: `Cap ${update.version} is ready to install`}
+							? `Shelf ${update.version} has been installed — restart to apply`
+							: `Shelf ${update.version} is ready to install`}
 					</p>
 					<div class="flex gap-2 items-center">
 						<button
@@ -1805,7 +1805,7 @@ function createUpdateReadyToast() {
 								const install = update.installed
 									? Promise.resolve(null)
 									: commands.updatesDownloadAndInstall();
-								// On Windows the NSIS installer restarts Cap itself, so the
+								// On Windows the NSIS installer restarts Shelf itself, so the
 								// relaunch call is unreachable there; that matches update.tsx.
 								install
 									.then(() => relaunch())
