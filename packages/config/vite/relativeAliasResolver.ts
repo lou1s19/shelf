@@ -13,7 +13,7 @@ const resolver: Alias = {
 		const [_, sourcePath] = source.split("~/");
 
 		if (importer?.includes("/src/")) {
-			const [pkg] = importer?.split("/src/");
+			const [pkg] = importer.split("/src/");
 
 			root = `${pkg!}/src`;
 		} else {
@@ -24,13 +24,15 @@ const resolver: Alias = {
 
 				let hasPkgJson = pkgJsonCache.get(parent);
 
-				if (hasPkgJson === undefined)
+				if (hasPkgJson === undefined) {
 					try {
 						await fs.stat(`${parent}/package.json`);
-						pkgJsonCache.set(parent, (hasPkgJson = true));
+						hasPkgJson = true;
 					} catch {
-						pkgJsonCache.set(parent, (hasPkgJson = false));
+						hasPkgJson = false;
 					}
+					pkgJsonCache.set(parent, hasPkgJson);
+				}
 
 				if (hasPkgJson) {
 					root = parent;
