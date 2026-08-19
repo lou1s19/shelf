@@ -30,9 +30,14 @@ Gebraucht werden Node mit pnpm, Rust (Toolchain steht in `rust-toolchain.toml`)
 und die Xcode Command Line Tools.
 
 ```sh
+cp .env.example .env    # einmalig, ohne diese Datei brechen die Build-Scripts ab
 pnpm install
 pnpm dev:desktop        # Vite plus Tauri, startet die App
 ```
+
+In der `.env` stehen keine Schlüssel. Shelf ist rein lokal, es gibt keine Konten
+und keinen Server. Die Datei existiert nur, weil einige Scripts sie per
+`dotenv -e .env` einlesen.
 
 Nur einzelne Teile:
 

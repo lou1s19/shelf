@@ -18,9 +18,23 @@ gestalterisch nochmal ansehen.
 - **Spracherkennungs-Modelle** werden von `github.com/CapSoftware/transcription-models`
   geladen. Funktioniert, hängt aber an Caps Repo.
 - Die Dateiendung von Projekten ist weiter `.cap`.
-- `.env.example` fehlt.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
+
+## 2026-08-19 (.env dokumentiert, Ordner ersetzbar)
+
+Die letzte undokumentierte Sache im Repo ist weg. In der gitignorierten `.env`
+standen nur `NODE_ENV=development` und `VITE_SERVER_URL=https://cap.so`. Kein
+Schlüssel, kein Geheimnis. Das `VITE_SERVER_URL` liest kein Code mehr, es war
+nur noch als Typ in `apps/desktop/src/vite-env.d.ts` deklariert, seit Caps Cloud
+raus ist. Die Deklaration ist entfernt.
+
+- **`.env.example` angelegt** mit den echten Werten plus Kommentaren, warum die
+  Datei überhaupt gebraucht wird: `tauri:build`, `with-env` und `cap-setup`
+  starten über `dotenv -e .env` und brechen ohne die Datei ab.
+- **README** nennt jetzt `cp .env.example .env` als ersten Schritt.
+- Damit ist `~/Desktop/Cap` jederzeit löschbar, der Stand steckt vollständig in
+  `lou1s19/shelf`.
 
 ## 2026-08-18 (Oberfläche aufgeräumt, Screenshots schnell)
 

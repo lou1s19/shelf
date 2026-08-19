@@ -19,23 +19,14 @@ fünf Dinge live prüfen:
    Herausziehen.
 4. Zwischenablage: Screenshot kopieren, dann einmal in ein Bildprogramm und
    einmal ins Terminal einfügen. Bild hier, Pfad dort.
-5. Tray-Symbol in der echten Menüleiste beurteilen, siehe Punkt 3 unten.
+5. Tray-Symbol in der echten Menüleiste beurteilen, siehe Punkt 2 unten.
 
 **Achtung, falls etwas klemmt:** `open` startet eine laufende App nicht neu.
 Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
 
 ## Als Nächstes
 
-1. **`.env.example` fehlt weiterhin, und das ist jetzt dringend.** Im
-   Repo-Wurzelverzeichnis liegt eine `.env` (52 Bytes), die von Git
-   ausgeschlossen ist und deren Variablen nirgends dokumentiert sind. Ohne sie
-   baut die App auf einem frischen Rechner nicht. Louis wollte den lokalen
-   Ordner löschen, ich habe abgeraten, bis das gesichert ist.
-   Zu tun: Louis um Erlaubnis fragen, die `.env` zu lesen, daraus eine
-   `.env.example` mit Platzhaltern bauen und committen. Erst danach ist der
-   Ordner gefahrlos löschbar (Repo: `lou1s19/shelf`, privat).
-
-2. **Vorschau beim Text-Kürzel.** „Area screenshot to text" kopiert den erkannten
+1. **Vorschau beim Text-Kürzel.** „Area screenshot to text" kopiert den erkannten
    Text stumm in die Zwischenablage. Es soll kurz ein Fenster zeigen, was kopiert
    wurde, und von selbst wieder verschwinden.
    Betroffen: `apps/desktop/src-tauri/src/recording.rs`
@@ -44,7 +35,7 @@ Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
    Offen: Wie lange stehen bleiben, wo erscheinen (bei der Maus oder am Rand),
    und was passiert bei langem Text (kürzen oder scrollen).
 
-3. **Tray-Symbol gestalterisch nochmal ansehen.** Das Cap-Symbol ist raus, das
+2. **Tray-Symbol gestalterisch nochmal ansehen.** Das Cap-Symbol ist raus, das
    neue Regal-Motiv liest sich bei Menüleistengröße aber eher wie ein
    Gleichheitszeichen, und der Punkt der Instant-Variante wirkt wie ein Fleck.
    Technisch in Ordnung (Template-Modus, vier Zustände, Quellen unter
@@ -53,7 +44,7 @@ Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
    Richtung her muss. Die alten Cap-Symbole stecken im Git-Verlauf, falls du
    vergleichen willst (Commit davor: `1c4809e89`).
 
-4. **Kleinkram aus dem Geschwindigkeits-Umbau.** Alles gemessen, alles gering:
+3. **Kleinkram aus dem Geschwindigkeits-Umbau.** Alles gemessen, alles gering:
    - `apps/desktop/src/routes/target-select-overlay.tsx:1264`: zusätzliche 50 ms
      `setTimeout` nur im Bereichs-Weg. Rust wartet danach ohnehin, kann weg.
    - `crates/recording/src/screenshot.rs:63-105`: skalare BGRA-nach-RGB-Schleife,
@@ -65,28 +56,39 @@ Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
 
 ## Danach
 
-5. **Eigener Update-Weg.** `apps/desktop/src-tauri/src/updates.rs` ist ein
+4. **Eigener Update-Weg.** `apps/desktop/src-tauri/src/updates.rs` ist ein
    Platzhalter, der immer „keine Aktualisierung" meldet. Caps Endpunkt ist raus,
    weil er Shelf durch Cap ersetzt hätte. Nötig wäre ein eigener Release-Feed
    plus Signierschlüssel, oder die Funktion ganz aus den Einstellungen nehmen.
 
-6. **Namen im Paketinneren.** Die mitgelieferten Hilfsprogramme heißen weiter
+5. **Namen im Paketinneren.** Die mitgelieferten Hilfsprogramme heißen weiter
    `cap-cli`, `cap-exporter`, `cap-muxer`, die Projektendung ist `.cap` und das
    Deep-Link-Schema `cap-desktop`. Im Betrieb sichtbar ist davon nichts. Das
    Umbenennen der Endung berührt viele Stellen und braucht eine Migration für
    bestehende Aufnahmen.
 
-7. **Sprachmodelle für die Untertitel** kommen von
+6. **Sprachmodelle für die Untertitel** kommen von
    `github.com/CapSoftware/transcription-models`. Funktioniert, hängt aber an
    einem fremden Repo. Eigene Ablage oder ein anderer Anbieter wäre sauberer.
 
-8. **Mehrsprachigkeit fehlt.** Alle Texte stehen fest im Code auf Englisch.
+7. **Mehrsprachigkeit fehlt.** Alle Texte stehen fest im Code auf Englisch.
 
-9. **CI deckt den Rust-Build nicht ab.** `.github/workflows/ci.yml` prüft nur
+8. **CI deckt den Rust-Build nicht ab.** `.github/workflows/ci.yml` prüft nur
    Typecheck, Biome und `cargo fmt` auf Linux. Der eigentliche Build bräuchte
    macOS-Runner zum zehnfachen Minutenpreis und würde das Kontingent eines
    privaten Repos in wenigen Läufen aufbrauchen. Sobald das Repo öffentlich ist,
    sind macOS-Runner kostenlos, dann `cargo check -p cap-desktop` ergänzen.
+
+## Erledigt am 2026-08-19 (nicht nochmal anfassen)
+
+`.env.example` liegt jetzt im Wurzelverzeichnis und ist committet. In der `.env`
+standen nur `NODE_ENV=development` und ein `VITE_SERVER_URL=https://cap.so`, das
+kein Code mehr liest. Keine Schlüssel, kein Geheimnis. Die tote Deklaration von
+`VITE_SERVER_URL` ist aus `apps/desktop/src/vite-env.d.ts` raus. Gebraucht wird
+die `.env` nur noch, weil `tauri:build`, `with-env` und `cap-setup` sie per
+`dotenv -e .env` einlesen und ohne Datei abbrechen.
+**Damit ist der lokale Ordner `~/Desktop/Cap` ersetzbar**, alles steckt in
+`lou1s19/shelf`. Nach einem frischen Klon: `cp .env.example .env`.
 
 ## Erledigt am 2026-08-18 (nicht nochmal anfassen)
 
