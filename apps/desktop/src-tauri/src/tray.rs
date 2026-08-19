@@ -72,12 +72,13 @@ impl LinuxTrayIcon {
 
 #[derive(Debug)]
 pub enum TrayItem {
-    OpenCap,
     StartStopRecording,
     RecordDisplay,
     RecordWindow,
     RecordArea,
+    RecordCameraOnly,
     TakeScreenshot,
+    OpenTeleprompter,
     ImportVideo,
     ViewAllRecordings,
     ViewAllScreenshots,
@@ -98,12 +99,13 @@ pub enum TrayItem {
 impl From<TrayItem> for MenuId {
     fn from(value: TrayItem) -> Self {
         match value {
-            TrayItem::OpenCap => "open_cap",
             TrayItem::StartStopRecording => "start_stop_recording",
             TrayItem::RecordDisplay => "record_display",
             TrayItem::RecordWindow => "record_window",
             TrayItem::RecordArea => "record_area",
+            TrayItem::RecordCameraOnly => "record_camera_only",
             TrayItem::TakeScreenshot => "take_screenshot",
+            TrayItem::OpenTeleprompter => "open_teleprompter",
             TrayItem::ImportVideo => "import_video",
             TrayItem::ViewAllRecordings => "view_all_recordings",
             TrayItem::ViewAllScreenshots => "view_all_screenshots",
@@ -147,12 +149,13 @@ impl TryFrom<MenuId> for TrayItem {
         }
 
         match id_str {
-            "open_cap" => Ok(TrayItem::OpenCap),
             "start_stop_recording" => Ok(TrayItem::StartStopRecording),
             "record_display" => Ok(TrayItem::RecordDisplay),
             "record_window" => Ok(TrayItem::RecordWindow),
             "record_area" => Ok(TrayItem::RecordArea),
+            "record_camera_only" => Ok(TrayItem::RecordCameraOnly),
             "take_screenshot" => Ok(TrayItem::TakeScreenshot),
+            "open_teleprompter" => Ok(TrayItem::OpenTeleprompter),
             "import_video" => Ok(TrayItem::ImportVideo),
             "view_all_recordings" => Ok(TrayItem::ViewAllRecordings),
             "view_all_screenshots" => Ok(TrayItem::ViewAllScreenshots),
@@ -624,6 +627,13 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         )?)?;
         menu.append(&MenuItem::with_id(
             app,
+            TrayItem::RecordCameraOnly,
+            "Record Camera Only",
+            true,
+            None::<&str>,
+        )?)?;
+        menu.append(&MenuItem::with_id(
+            app,
             TrayItem::TakeScreenshot,
             "Take a Screenshot",
             true,
@@ -702,8 +712,8 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     )?)?;
     menu.append(&MenuItem::with_id(
         app,
-        TrayItem::OpenCap,
-        "Open Main Window",
+        TrayItem::OpenTeleprompter,
+        "Teleprompter",
         true,
         None::<&str>,
     )?)?;
@@ -711,6 +721,13 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         app,
         TrayItem::OpenSettings,
         "Settings",
+        true,
+        None::<&str>,
+    )?)?;
+    menu.append(&MenuItem::with_id(
+        app,
+        TrayItem::RequestPermissions,
+        "Permissions & Tour",
         true,
         None::<&str>,
     )?)?;
@@ -1083,14 +1100,29 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 Ok(TrayItem::StartStopRecording) => {
                     handle_start_stop(app, &is_recording);
                 }
-                Ok(TrayItem::OpenCap) => {
+                Ok(TrayItem::OpenTeleprompter) => {
                     let app = app.clone();
                     tokio::spawn(async move {
-                        let _ = ShowCapWindow::Main {
-                            init_target_mode: None,
+                        if let Err(e) = ShowCapWindow::Teleprompter.show(&app).await {
+                            tracing::error!("Failed to open teleprompter from tray: {e}");
                         }
-                        .show(&app)
-                        .await;
+                    });
+                }
+                Ok(TrayItem::RecordCameraOnly) => {
+                    // Camera-only has no target to pick, so it goes straight to
+                    // recording with the saved camera.
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = RecordingSettingsStore::set_target(
+                            &app,
+                            Some(cap_recording::screen_capture::ScreenCaptureTarget::CameraOnly),
+                        ) {
+                            tracing::error!("Failed to select camera-only target: {e}");
+                            return;
+                        }
+
+                        let mode = get_current_mode(&app);
+                        let _ = crate::RequestStartRecording { mode }.emit(&app);
                     });
                 }
                 Ok(TrayItem::RecordDisplay) => {

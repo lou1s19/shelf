@@ -65,7 +65,7 @@ use crate::{
     audio::AppSounds,
     create_screenshot, create_screenshot_source_from_segments,
     general_settings::{
-        GeneralSettingsStore, PostDeletionBehaviour, PostScreenshotBehaviour,
+        GeneralSettingsStore, PostScreenshotBehaviour,
         PostStudioRecordingBehaviour,
     },
     presets::PresetsStore,
@@ -1656,13 +1656,6 @@ pub async fn start_recording(
     .show(&app)
     .await;
 
-    if let Some(window) = CapWindowId::Main.get(&app) {
-        let _ = general_settings
-            .map(|v| v.main_window_recording_start_behaviour)
-            .unwrap_or_default()
-            .perform(&window);
-    }
-
     crate::windows::apply_content_protection(&app, true);
 
     if let Some(editor_target) = EditorRecordingTarget::current(&app)
@@ -2496,22 +2489,6 @@ pub async fn delete_recording(app: AppHandle, state: MutableState<'_, App>) -> R
 
         let delete_result = discard_recording(recording).await;
 
-        let settings = GeneralSettingsStore::get(&app)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-
-        match settings.post_deletion_behaviour {
-            PostDeletionBehaviour::DoNothing => {}
-            PostDeletionBehaviour::ReopenRecordingWindow => {
-                let _ = ShowCapWindow::Main {
-                    init_target_mode: None,
-                }
-                .show(&app)
-                .await;
-            }
-        }
-
         delete_result?;
     }
 
@@ -3107,24 +3084,11 @@ async fn handle_recording_end(
     let _ = app.mic_feed.ask(microphone::RemoveInput).await;
     let _ = app.camera_feed.ask(camera::RemoveInput).await;
 
-    let main_window = CapWindowId::Main.get(&handle);
-
-    // When the finish path handed the foreground to an editor window, leave
-    // the main window alone: un-minimizing it here (Windows `Close` behaviour
-    // minimizes; macOS `Minimise` miniaturizes) would restore it on top of the
-    // editor that just opened.
-    let editor_took_foreground = matches!(&res, Some(Ok(true)));
-
-    if let Some(window) = main_window {
-        if !editor_took_foreground {
-            window.unminimize().ok();
-        }
-        if let Err(err) = app.ensure_selected_mic_ready().await {
-            warn!("Failed to restore microphone preview after recording: {err}");
-        }
-    } else {
-        app.selected_mic_label = None;
-        app.selected_camera_id = None;
+    // The camera and microphone choice survives the recording. It is set from
+    // the tray menu and has to stay put, otherwise every recording would reset
+    // it to "No Camera" / "No Microphone".
+    if let Err(err) = app.ensure_selected_mic_ready().await {
+        warn!("Failed to restore microphone preview after recording: {err}");
     }
 
     // Fallback for in-editor recordings that did NOT reach
