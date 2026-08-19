@@ -15,14 +15,17 @@ import {
 	createStableDevicesQuery,
 	type MicrophoneWithDetails,
 } from "~/utils/devices";
-import { commands } from "~/utils/tauri";
+import { commands, type DeviceOrModelID } from "~/utils/tauri";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 
 import { Section, SectionCard, SettingsPageContent } from "./Setting";
 
 /// The store is typed loosely for these two keys, same as the recording UI does.
 const deviceSettingsStore = recordingSettingsStore as unknown as {
-	get: () => Promise<RecordingDeviceSettingsStore | undefined>;
+	get: () => Promise<
+		| (RecordingDeviceSettingsStore & { cameraId?: DeviceOrModelID | null })
+		| undefined
+	>;
 	set: (value?: Partial<RecordingDeviceSettingsStore>) => Promise<void>;
 	createQuery: () => ReturnType<typeof recordingSettingsStore.createQuery>;
 };
@@ -77,15 +80,22 @@ export default function DevicesSettings() {
 			await deviceSettingsStore.set({ cameraDeviceSettings: next });
 
 			// A running camera preview keeps the old format until it is re-applied.
+			// Only the camera that is actually selected gets re-applied: editing
+			// an idle camera must not take over the live preview.
+			const selectedId = (await deviceSettingsStore.get())?.cameraId;
+			const isSelected =
+				selectedId != null &&
+				("ModelID" in selectedId
+					? selectedId.ModelID === camera.model_id
+					: selectedId.DeviceID === camera.device_id);
+			if (!isSelected) return;
+
 			const cameraWindowOpen = await commands
 				.isCameraWindowOpen()
 				.catch(() => false);
 			if (!cameraWindowOpen) return;
 
-			const id = camera.model_id
-				? { ModelID: camera.model_id }
-				: { DeviceID: camera.device_id };
-			await commands.setCameraInput(id, true).catch((error) => {
+			await commands.setCameraInput(selectedId, true).catch((error) => {
 				console.error("Failed to re-apply camera settings:", error);
 			});
 		});

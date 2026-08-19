@@ -4970,8 +4970,17 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                     .flatten()
                     .unwrap_or_default();
 
-                let _ = set_mic_input(app.state(), settings.mic_name).await;
-                let _ = set_camera_input(app.clone(), app.state(), settings.camera_id, None).await;
+                // A device that refuses to open must not silence the whole start:
+                // recording without it is still better than nothing happening.
+                // It is logged so a "why is there no sound" report is traceable.
+                if let Err(err) = set_mic_input(app.state(), settings.mic_name).await {
+                    warn!(error = %err, "Microphone could not be prepared for this recording");
+                }
+                if let Err(err) =
+                    set_camera_input(app.clone(), app.state(), settings.camera_id, None).await
+                {
+                    warn!(error = %err, "Camera could not be prepared for this recording");
+                }
 
                 let _ = start_recording(app.clone(), app.state(), {
                     recording::StartRecordingInputs {
