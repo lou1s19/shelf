@@ -95,6 +95,12 @@ async listSystemFonts() : Promise<string[]> {
 async closeRecordingsOverlayWindow() : Promise<void> {
     await TAURI_INVOKE("close_recordings_overlay_window");
 },
+async closeTextPinWindow() : Promise<void> {
+    await TAURI_INVOKE("close_text_pin_window");
+},
+async setPinCopyShortcutActive(active: boolean) : Promise<void> {
+    await TAURI_INVOKE("set_pin_copy_shortcut_active", { active });
+},
 /**
  * Returns `true` once the file was actually dropped somewhere, `false` when the drag was
  * cancelled. Callers use that to decide whether the dragged item may disappear from their list.
@@ -490,6 +496,7 @@ newNotification: NewNotification,
 newScreenshotAdded: NewScreenshotAdded,
 newStudioRecordingAdded: NewStudioRecordingAdded,
 onEscapePress: OnEscapePress,
+onPinCopyPress: OnPinCopyPress,
 recordingDeleted: RecordingDeleted,
 recordingEvent: RecordingEvent,
 recordingOptionsChanged: RecordingOptionsChanged,
@@ -506,6 +513,7 @@ requestStartRecording: RequestStartRecording,
 screenshotPinPreview: ScreenshotPinPreview,
 setCaptureAreaPending: SetCaptureAreaPending,
 targetUnderCursor: TargetUnderCursor,
+textPinAdded: TextPinAdded,
 updateDownloadProgress: UpdateDownloadProgress,
 updateReady: UpdateReady,
 videoImportProgress: VideoImportProgress
@@ -521,6 +529,7 @@ newNotification: "new-notification",
 newScreenshotAdded: "new-screenshot-added",
 newStudioRecordingAdded: "new-studio-recording-added",
 onEscapePress: "on-escape-press",
+onPinCopyPress: "on-pin-copy-press",
 recordingDeleted: "recording-deleted",
 recordingEvent: "recording-event",
 recordingOptionsChanged: "recording-options-changed",
@@ -537,6 +546,7 @@ requestStartRecording: "request-start-recording",
 screenshotPinPreview: "screenshot-pin-preview",
 setCaptureAreaPending: "set-capture-area-pending",
 targetUnderCursor: "target-under-cursor",
+textPinAdded: "text-pin-added",
 updateDownloadProgress: "update-download-progress",
 updateReady: "update-ready",
 videoImportProgress: "video-import-progress"
@@ -1027,6 +1037,12 @@ export type OSPermission = "screenRecording" | "camera" | "microphone" | "access
 export type OSPermissionStatus = "notNeeded" | "empty" | "granted" | "denied"
 export type OSPermissionsCheck = { screenRecording: OSPermissionStatus; microphone: OSPermissionStatus; camera: OSPermissionStatus; accessibility: OSPermissionStatus }
 export type OnEscapePress = null
+/**
+ * Cmd+C over a pinned card. The overlay is a non-activating panel and never
+ * becomes key window, so it receives no key events of its own. The shortcut is
+ * therefore registered globally, but only while the overlay armed it.
+ */
+export type OnPinCopyPress = null
 export type PhysicalSize = { width: number; height: number }
 export type Platform = "MacOS" | "Windows" | "Linux"
 export type PostScreenshotBehaviour = "openEditor" | 
@@ -1127,7 +1143,7 @@ export type SerializedScreenshotEditorInstance = { framesSocketUrl: string; path
 export type SetCaptureAreaPending = boolean
 export type ShadowConfiguration = { size: number; opacity: number; blur: number }
 export type SharingMeta = { id: string; link: string; content_hash?: string | null }
-export type ShowCapWindow = { Settings: { page: string | null } } | { Editor: { project_path: string } } | "RecordingsOverlay" | { WindowCaptureOccluder: { screen_id: DisplayId } } | { TargetSelectOverlay: { display_id: DisplayId; target_mode: RecordingTargetMode | null } } | { CaptureArea: { screen_id: DisplayId } } | { Camera: { centered: boolean } } | { InProgressRecording: { countdown: number | null; capture_target?: ScreenCaptureTarget | null } } | "ModeSelect" | "Teleprompter" | { ScreenshotEditor: { path: string } } | "Onboarding"
+export type ShowCapWindow = { Settings: { page: string | null } } | { Editor: { project_path: string } } | "RecordingsOverlay" | { WindowCaptureOccluder: { screen_id: DisplayId } } | { TargetSelectOverlay: { display_id: DisplayId; target_mode: RecordingTargetMode | null } } | { CaptureArea: { screen_id: DisplayId } } | { Camera: { centered: boolean } } | { InProgressRecording: { countdown: number | null; capture_target?: ScreenCaptureTarget | null } } | "ModeSelect" | "Teleprompter" | { TextPin: { text: string } } | { ScreenshotEditor: { path: string } } | "Onboarding"
 export type SingleSegment = { display: VideoMeta; camera?: VideoMeta | null; audio?: AudioMeta | null; cursor?: string | null }
 export type SplitLayout = { screenZoom: number; screenPosition: XY<number>; cameraZoom: number; cameraPosition: XY<number> }
 export type StartRecordingInputs = { capture_target: ScreenCaptureTarget; capture_system_audio?: boolean; mode: RecordingMode }
@@ -1160,6 +1176,12 @@ export type TextLayout =
  * Text in the right half, display card contained in the left half.
  */
 "splitRight"
+/**
+ * Recognized text on its way to the panel. There is no file behind it: the
+ * screenshot is deleted once the text is on the clipboard, so the event carries
+ * the text itself and an id to tell repeated announcements apart.
+ */
+export type TextPinAdded = { id: string; text: string }
 export type TextSegment = { start: number; end: number; track?: number; enabled?: boolean; content?: string; center?: XY<number>; size?: XY<number>; fontFamily?: string; fontSize?: number; fontWeight?: number; italic?: boolean; color?: string; 
 /**
  * Legacy symmetric fade. Superseded by the animation fields below; kept

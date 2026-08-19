@@ -27,7 +27,9 @@ import { createTauriEventListener } from "~/utils/createEventListener";
 import { createExportToFileTask, exportVideo } from "~/utils/export";
 import { commands, events, type FramesRendered } from "~/utils/tauri";
 import IconCapEditor from "~icons/cap/editor";
+import IconLucideCheck from "~icons/lucide/check";
 import IconLucideClock from "~icons/lucide/clock";
+import IconLucideCopy from "~icons/lucide/copy";
 import IconLucideEye from "~icons/lucide/eye";
 import { FPS, OUTPUT_SIZE } from "./editor/context";
 
@@ -57,16 +59,13 @@ export function maxVisibleCards(availableHeight: number): number {
 	return Math.max(1, Math.min(MAX_VISIBLE_CARDS, fits));
 }
 
-const DEFAULT_AUTO_HIDE_SECONDS = 10;
-
 /**
- * `null` means a pin stays until it is dismissed by hand. A missing value is a store that has not
- * been written since the setting exists, which gets the same default the backend uses.
+ * `null` means a pin stays until it is dismissed or acted on, which is the
+ * default: a pin that vanishes on its own takes the screenshot with it.
  */
 export function autoHideMsFromSettings(
 	seconds: number | null | undefined,
 ): number | null {
-	if (seconds === undefined) return DEFAULT_AUTO_HIDE_SECONDS * 1000;
 	return typeof seconds === "number" && seconds > 0 ? seconds * 1000 : null;
 }
 
@@ -89,6 +88,92 @@ export default function () {
 
 	const screenshotAutoHideMs = () =>
 		autoHideMsFromSettings(settings.data?.screenshotPinAutoHideSeconds);
+
+	// Cmd+C over a card. Measured on a mixed-DPI multi-monitor setup: while the
+	// pointer rests on a card, the hit test in fake_window.rs flaps, so the panel
+	// loses focus and the webview sees mouseleave for a moment even though the
+	// mouse never moved. Releasing on either of those disarmed the shortcut
+	// between two keystrokes. The grab is therefore held for a grace period and
+	// dropped by a timer, not by the first leave.
+	const HOLD_AFTER_LEAVE_MS = 3000;
+	const MAX_HOLD_MS = 20000;
+
+	const [hoveredCopy, setHoveredCopy] = createSignal<(() => void) | null>(null);
+	const [newestCopy, setNewestCopy] = createSignal<(() => void) | null>(null);
+	let copyShortcutArmed = false;
+	let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+	let maxHoldTimer: ReturnType<typeof setTimeout> | undefined;
+
+	const setCopyShortcut = (active: boolean) => {
+		if (copyShortcutArmed === active) return;
+		copyShortcutArmed = active;
+		commands
+			.setPinCopyShortcutActive(active)
+			.catch((error) =>
+				console.error("Failed to change the copy shortcut", error),
+			);
+	};
+
+	/** The hovered card, or the newest one when the pointer never reached a card. */
+	const copyTarget = () => hoveredCopy() ?? newestCopy();
+
+	const clearTimers = () => {
+		if (releaseTimer !== undefined) clearTimeout(releaseTimer);
+		if (maxHoldTimer !== undefined) clearTimeout(maxHoldTimer);
+		releaseTimer = undefined;
+		maxHoldTimer = undefined;
+	};
+
+	const releaseCopyShortcut = () => {
+		clearTimers();
+		setHoveredCopy(null);
+		setCopyShortcut(false);
+	};
+
+	const armCopyShortcut = (run?: () => void) => {
+		if (run) setHoveredCopy(() => run);
+		if (!copyTarget()) return;
+
+		clearTimers();
+		setCopyShortcut(true);
+		maxHoldTimer = setTimeout(releaseCopyShortcut, MAX_HOLD_MS);
+	};
+
+	/** Not an immediate release: a flapping hit test would disarm mid-keystroke. */
+	const scheduleRelease = () => {
+		if (!copyShortcutArmed) return;
+		if (releaseTimer !== undefined) clearTimeout(releaseTimer);
+		releaseTimer = setTimeout(releaseCopyShortcut, HOLD_AFTER_LEAVE_MS);
+	};
+
+	const runCopy = () => {
+		const run = copyTarget();
+		if (!run) return;
+		releaseCopyShortcut();
+		run();
+	};
+
+	createTauriEventListener(events.onPinCopyPress, runCopy);
+
+	const onWindowFocus = () => armCopyShortcut();
+	const onKeyDown = (event: KeyboardEvent) => {
+		if (event.key !== "c" || !(event.metaKey || event.ctrlKey)) return;
+		event.preventDefault();
+		runCopy();
+	};
+	const onVisibilityChange = () => {
+		if (document.hidden) releaseCopyShortcut();
+	};
+
+	window.addEventListener("focus", onWindowFocus);
+	window.addEventListener("keydown", onKeyDown);
+	document.addEventListener("visibilitychange", onVisibilityChange);
+	onCleanup(() => {
+		window.removeEventListener("focus", onWindowFocus);
+		window.removeEventListener("keydown", onKeyDown);
+		document.removeEventListener("visibilitychange", onVisibilityChange);
+		releaseCopyShortcut();
+	});
 
 	const removeEntry = (path: string, type: MediaType) => {
 		const setMedia = type === "screenshot" ? setScreenshots : setRecordings;
@@ -290,6 +375,31 @@ export default function () {
 
 								const dismiss = () => removeEntry(media.path, type);
 
+								// A card that vanishes the instant the key is pressed leaves
+								// no sign that anything happened. The tick fades in, holds,
+								// fades out, and only then is the card dropped.
+								const [copied, setCopied] = createSignal(false);
+								const copyThisCard = () =>
+									copy.mutate(undefined, {
+										onSuccess: () => {
+											setCopied(true);
+											setTimeout(() => setCopied(false), 700);
+											setTimeout(dismiss, 950);
+										},
+									});
+
+								// The stack grows from the newest entry, so the first card
+								// rendered is the one Cmd+C means without a pointer.
+								createEffect(() => {
+									if (allMedia()[0]?.path === media.path)
+										setNewestCopy(() => copyThisCard);
+								});
+								onCleanup(() =>
+									setNewestCopy((current) =>
+										current === copyThisCard ? null : current,
+									),
+								);
+
 								// The pin disappears once the file has landed somewhere else. A drag the
 								// user gave up on leaves it alone.
 								const dragOut = (e: MouseEvent) => {
@@ -367,8 +477,14 @@ export default function () {
 												!isRecording && "cursor-grab active:cursor-grabbing",
 											)}
 											onMouseDown={dragOut}
-											onMouseEnter={pauseHide}
-											onMouseLeave={resumeHide}
+											onMouseEnter={() => {
+												pauseHide();
+												armCopyShortcut(copyThisCard);
+											}}
+											onMouseLeave={() => {
+												resumeHide();
+												scheduleRelease();
+											}}
 										>
 											<div
 												class={cx(
@@ -403,7 +519,9 @@ export default function () {
 												<Switch>
 													<Match
 														when={
-															actionState.type === "copy" && actionState.state
+															isRecording &&
+															actionState.type === "copy" &&
+															actionState.state
 														}
 														keyed
 													>
@@ -463,6 +581,19 @@ export default function () {
 												</Switch>
 
 												<div
+													class={cx(
+														"flex absolute inset-0 z-30 justify-center items-center rounded-[7.4px] transition-opacity duration-200 pointer-events-none",
+														copied() ? "opacity-100" : "opacity-0",
+													)}
+													style={{
+														"background-color": "rgba(0, 0, 0, 0.55)",
+														"backdrop-filter": "blur(2px)",
+													}}
+												>
+													<IconLucideCheck class="text-white size-10" />
+												</div>
+
+												<div
 													style={{
 														"background-color": "rgba(0, 0, 0, 0.4)",
 													}}
@@ -507,18 +638,21 @@ export default function () {
 															<IconLucideEye class="size-4" />
 														</TooltipIconButton>
 													</Show>
-													<div class="flex absolute inset-0 gap-2 justify-center items-center">
+													<TooltipIconButton
+														class="absolute right-3 bottom-3 z-20"
+														tooltipText={copy.isPending ? "Copying" : "Copy"}
+														tooltipPlacement="left"
+														onClick={copyThisCard}
+													>
+														<IconLucideCopy class="size-4" />
+													</TooltipIconButton>
+													<div class="flex absolute inset-0 justify-center items-center">
 														<Button
 															variant="white"
 															size="sm"
-															onClick={() => copy.mutate()}
-														>
-															{copy.isPending ? "Copying" : "Copy"}
-														</Button>
-														<Button
-															variant="white"
-															size="sm"
-															onClick={() => save.mutate()}
+															onClick={() =>
+																save.mutate(undefined, { onSuccess: dismiss })
+															}
 														>
 															Export
 														</Button>

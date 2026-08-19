@@ -77,7 +77,9 @@ pub enum TrayItem {
     RecordWindow,
     RecordArea,
     RecordCameraOnly,
-    TakeScreenshot,
+    ScreenshotDisplay,
+    ScreenshotWindow,
+    ScreenshotArea,
     OpenTeleprompter,
     ImportVideo,
     ViewAllRecordings,
@@ -104,7 +106,9 @@ impl From<TrayItem> for MenuId {
             TrayItem::RecordWindow => "record_window",
             TrayItem::RecordArea => "record_area",
             TrayItem::RecordCameraOnly => "record_camera_only",
-            TrayItem::TakeScreenshot => "take_screenshot",
+            TrayItem::ScreenshotDisplay => "screenshot_display",
+            TrayItem::ScreenshotWindow => "screenshot_window",
+            TrayItem::ScreenshotArea => "screenshot_area",
             TrayItem::OpenTeleprompter => "open_teleprompter",
             TrayItem::ImportVideo => "import_video",
             TrayItem::ViewAllRecordings => "view_all_recordings",
@@ -154,7 +158,9 @@ impl TryFrom<MenuId> for TrayItem {
             "record_window" => Ok(TrayItem::RecordWindow),
             "record_area" => Ok(TrayItem::RecordArea),
             "record_camera_only" => Ok(TrayItem::RecordCameraOnly),
-            "take_screenshot" => Ok(TrayItem::TakeScreenshot),
+            "screenshot_display" => Ok(TrayItem::ScreenshotDisplay),
+            "screenshot_window" => Ok(TrayItem::ScreenshotWindow),
+            "screenshot_area" => Ok(TrayItem::ScreenshotArea),
             "open_teleprompter" => Ok(TrayItem::OpenTeleprompter),
             "import_video" => Ok(TrayItem::ImportVideo),
             "view_all_recordings" => Ok(TrayItem::ViewAllRecordings),
@@ -515,6 +521,66 @@ fn create_microphone_submenu(
     Ok(submenu)
 }
 
+/// Both groups are always in the menu now (see CHANGELOG), tucked into
+/// submenus so the top level stays short. Icons are reused from the
+/// existing mode icons rather than inventing new artwork.
+fn create_screenshot_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
+    let icon = Image::from_bytes(include_bytes!("../icons/tray-default-icon-screenshot.png"))?;
+    let submenu = Submenu::with_id_and_icon(
+        app,
+        "screenshot_menu",
+        "Screenshot",
+        true,
+        Some(icon.clone()),
+    )?;
+
+    for (tray_item, label) in [
+        (TrayItem::ScreenshotDisplay, "Display"),
+        (TrayItem::ScreenshotWindow, "Window"),
+        (TrayItem::ScreenshotArea, "Area"),
+    ] {
+        submenu.append(&IconMenuItem::with_id(
+            app,
+            tray_item,
+            label,
+            true,
+            Some(icon.clone()),
+            None::<&str>,
+        )?)?;
+    }
+
+    Ok(submenu)
+}
+
+fn create_record_screen_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
+    let icon = Image::from_bytes(include_bytes!("../icons/tray-default-icon.png"))?;
+    let submenu = Submenu::with_id_and_icon(
+        app,
+        "record_screen_menu",
+        "Record Screen",
+        true,
+        Some(icon.clone()),
+    )?;
+
+    for (tray_item, label) in [
+        (TrayItem::RecordDisplay, "Display"),
+        (TrayItem::RecordWindow, "Window"),
+        (TrayItem::RecordArea, "Area"),
+        (TrayItem::RecordCameraOnly, "Camera Only"),
+    ] {
+        submenu.append(&IconMenuItem::with_id(
+            app,
+            tray_item,
+            label,
+            true,
+            Some(icon.clone()),
+            None::<&str>,
+        )?)?;
+    }
+
+    Ok(submenu)
+}
+
 fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result<Menu<tauri::Wry>> {
     if should_use_minimal_onboarding_tray_menu(app) {
         return Menu::with_items(
@@ -581,65 +647,8 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     // 2. Quick actions that pick a target first.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    if is_screenshot_mode {
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordDisplay,
-            "Screenshot Display",
-            true,
-            None::<&str>,
-        )?)?;
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordWindow,
-            "Screenshot Window",
-            true,
-            None::<&str>,
-        )?)?;
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordArea,
-            "Screenshot Area",
-            true,
-            None::<&str>,
-        )?)?;
-    } else {
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordDisplay,
-            "Record Display",
-            true,
-            None::<&str>,
-        )?)?;
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordWindow,
-            "Record Window",
-            true,
-            None::<&str>,
-        )?)?;
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordArea,
-            "Record Area",
-            true,
-            None::<&str>,
-        )?)?;
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::RecordCameraOnly,
-            "Record Camera Only",
-            true,
-            None::<&str>,
-        )?)?;
-        menu.append(&MenuItem::with_id(
-            app,
-            TrayItem::TakeScreenshot,
-            "Take a Screenshot",
-            true,
-            None::<&str>,
-        )?)?;
-    }
+    menu.append(&create_screenshot_submenu(app)?)?;
+    menu.append(&create_record_screen_submenu(app)?)?;
 
     // 3. Mode, visible at a glance instead of hidden in a submenu.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -966,6 +975,42 @@ fn take_screenshot_of_cursor_display(app: &AppHandle) {
     });
 }
 
+enum PickerKind {
+    Recording,
+    Screenshot,
+}
+
+/// The menu offers both halves at once, so a screenshot entry has to put the app
+/// into screenshot mode and a record entry has to take it out again. Instant is
+/// kept when it was already selected; only screenshot mode falls back to Studio.
+fn switch_to_recording_mode(app: &AppHandle, cache: &Arc<Mutex<PreviousItemsCache>>) {
+    if get_current_mode(app) != RecordingMode::Screenshot {
+        return;
+    }
+    handle_mode_selection(app, RecordingMode::Studio, cache);
+}
+
+fn open_picker_in(
+    app: &AppHandle,
+    cache: &Arc<Mutex<PreviousItemsCache>>,
+    target_mode: RecordingTargetMode,
+    kind: PickerKind,
+) {
+    match kind {
+        PickerKind::Screenshot => {
+            if get_current_mode(app) != RecordingMode::Screenshot {
+                handle_mode_selection(app, RecordingMode::Screenshot, cache);
+            }
+        }
+        PickerKind::Recording => switch_to_recording_mode(app, cache),
+    }
+
+    let app = app.clone();
+    tokio::spawn(async move {
+        crate::open_target_picker(&app, target_mode).await;
+    });
+}
+
 /// The menu's primary item. Deliberately goes through the same
 /// `RequestStartRecording` event the hotkeys and the UI use, so the saved
 /// target, camera, microphone and system audio are applied in one place.
@@ -1109,6 +1154,8 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     });
                 }
                 Ok(TrayItem::RecordCameraOnly) => {
+                    switch_to_recording_mode(app, &cache);
+
                     // Camera-only has no target to pick, so it goes straight to
                     // recording with the saved camera.
                     let app = app.clone();
@@ -1126,25 +1173,52 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     });
                 }
                 Ok(TrayItem::RecordDisplay) => {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        crate::open_target_picker(&app, RecordingTargetMode::Display).await;
-                    });
+                    open_picker_in(
+                        app,
+                        &cache,
+                        RecordingTargetMode::Display,
+                        PickerKind::Recording,
+                    );
                 }
                 Ok(TrayItem::RecordWindow) => {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        crate::open_target_picker(&app, RecordingTargetMode::Window).await;
-                    });
+                    open_picker_in(
+                        app,
+                        &cache,
+                        RecordingTargetMode::Window,
+                        PickerKind::Recording,
+                    );
                 }
                 Ok(TrayItem::RecordArea) => {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        crate::open_target_picker(&app, RecordingTargetMode::Area).await;
-                    });
+                    open_picker_in(
+                        app,
+                        &cache,
+                        RecordingTargetMode::Area,
+                        PickerKind::Recording,
+                    );
                 }
-                Ok(TrayItem::TakeScreenshot) => {
-                    take_screenshot_of_cursor_display(app);
+                Ok(TrayItem::ScreenshotDisplay) => {
+                    open_picker_in(
+                        app,
+                        &cache,
+                        RecordingTargetMode::Display,
+                        PickerKind::Screenshot,
+                    );
+                }
+                Ok(TrayItem::ScreenshotWindow) => {
+                    open_picker_in(
+                        app,
+                        &cache,
+                        RecordingTargetMode::Window,
+                        PickerKind::Screenshot,
+                    );
+                }
+                Ok(TrayItem::ScreenshotArea) => {
+                    open_picker_in(
+                        app,
+                        &cache,
+                        RecordingTargetMode::Area,
+                        PickerKind::Screenshot,
+                    );
                 }
                 Ok(TrayItem::ImportVideo) => {
                     let app = app.clone();

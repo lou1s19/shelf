@@ -302,14 +302,8 @@ function ScreenshotSettingsInner(props: {
 					/>
 					<SelectSettingItem
 						label="Hide the overlay card"
-						description="How long a screenshot stays pinned in the overlay before it disappears."
-						// `undefined` means the store has not been written yet, so the
-						// backend default applies; `null` is the user's "never" choice.
-						value={
-							settings.screenshotPinAutoHideSeconds === undefined
-								? 10
-								: (settings.screenshotPinAutoHideSeconds ?? 0)
-						}
+						description="How long a screenshot stays pinned in the overlay. It waits for you by default."
+						value={settings.screenshotPinAutoHideSeconds ?? 0}
 						onChange={(value) =>
 							handleChange(
 								"screenshotPinAutoHideSeconds",

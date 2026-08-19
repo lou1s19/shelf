@@ -239,8 +239,10 @@ fn default_true() -> bool {
     true
 }
 
+/// `None` is "never": the pin waits for the user. It used to disappear after ten
+/// seconds, which took the screenshot with it before anyone had done anything.
 fn default_screenshot_pin_auto_hide_seconds() -> Option<u32> {
-    Some(10)
+    None
 }
 
 fn default_instant_mode_max_resolution() -> u32 {

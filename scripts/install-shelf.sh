@@ -33,12 +33,33 @@ esac
 
 echo "==> building ($MODE)"
 cd "$REPO"
-pnpm --dir apps/desktop tauri build "${BUILD_FLAGS[@]}" \
-	--config src-tauri/tauri.prod.conf.json 2>&1 | tail -5 || true
+# The build log goes to a file rather than the terminal, but a failure has to
+# stop here. It used to end in `|| true` with only the last five lines shown, so
+# a broken build installed the previous bundle and still reported success.
+BUILD_LOG="$(mktemp -t shelf-build)"
+if ! pnpm --dir apps/desktop tauri build "${BUILD_FLAGS[@]}" \
+	--config src-tauri/tauri.prod.conf.json >"$BUILD_LOG" 2>&1; then
+	echo "==> build failed, nothing installed" >&2
+	tail -40 "$BUILD_LOG" >&2
+	exit 1
+fi
+tail -5 "$BUILD_LOG"
+rm -f "$BUILD_LOG"
 
 SOURCE="$BUNDLE_DIR/$APP_NAME"
 if [ ! -d "$SOURCE" ]; then
 	echo "no bundle at $SOURCE" >&2
+	exit 1
+fi
+
+# A bundle older than the newest source file means the build did not actually
+# produce anything new, which is how a stale app got installed unnoticed.
+NEWEST_SOURCE="$(find "$REPO/apps" "$REPO/crates" -type f \
+	\( -name "*.rs" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" \) \
+	-not -path "*/node_modules/*" -newer "$SOURCE/Contents/MacOS/$(basename "$APP_NAME" .app)" \
+	-print -quit 2>/dev/null || true)"
+if [ -n "$NEWEST_SOURCE" ]; then
+	echo "==> bundle is older than $NEWEST_SOURCE, refusing to install a stale build" >&2
 	exit 1
 fi
 

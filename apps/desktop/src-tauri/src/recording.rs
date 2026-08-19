@@ -2772,6 +2772,15 @@ pub async fn take_screenshot(
     Ok(image_path)
 }
 
+/// Recognized text on its way to the panel. There is no file behind it: the
+/// screenshot is deleted once the text is on the clipboard, so the event carries
+/// the text itself and an id to tell repeated announcements apart.
+#[derive(Deserialize, specta::Type, Serialize, tauri_specta::Event, Debug, Clone)]
+pub struct TextPinAdded {
+    pub id: String,
+    pub text: String,
+}
+
 /// Sent as soon as the capture exists in memory, long before the PNG is written, so the pin can
 /// appear right away. `preview` is a small JPEG data URL in card size; the overlay swaps it for
 /// the real file once [`crate::NewScreenshotAdded`] follows.
@@ -2995,6 +3004,8 @@ async fn recognize_screenshot_text_to_clipboard(
         }
     };
 
+    let text_for_pin = text.clone();
+
     let clipboard = app.state::<Arc<tokio::sync::RwLock<crate::ClipboardContext>>>();
     if let Err(e) = clipboard.write().await.set_text(text) {
         error!("Failed to copy recognized text to clipboard: {e}");
@@ -3006,7 +3017,50 @@ async fn recognize_screenshot_text_to_clipboard(
         error!("Failed to remove screenshot project after text recognition: {e}");
     }
 
+    show_text_pin(app, &text_for_pin).await;
+
     notifications::send_notification(app, notifications::NotificationType::TextCopiedToClipboard);
+}
+
+/// The window carries the first text in its init script, so a fresh panel paints
+/// without waiting for an event. The event only updates a panel that is already
+/// open, and it repeats for a moment because a window that exists is no proof
+/// that its listener is up.
+async fn show_text_pin(app: &AppHandle, text: &str) {
+    static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    let existed = CapWindowId::TextPin.get(app).is_some();
+
+    if let Err(e) = (ShowCapWindow::TextPin {
+        text: text.to_string(),
+    })
+    .show(app)
+    .await
+    {
+        error!("Failed to show copied text: {e}");
+        return;
+    }
+
+    if !existed {
+        return;
+    }
+
+    let event = TextPinAdded {
+        id: format!(
+            "text-{}",
+            NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ),
+        text: text.to_string(),
+    };
+    let _ = event.emit(app);
+
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        for delay in [80u64, 120, 200] {
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+            let _ = event.emit(&app);
+        }
+    });
 }
 
 async fn handle_recording_end(

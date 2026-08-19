@@ -17,7 +17,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 use tauri_plugin_store::StoreExt;
 use tauri_specta::Event;
-use tracing::instrument;
+use tracing::{debug, error, instrument};
 
 #[derive(Serialize, Deserialize, Type, PartialEq, Clone, Copy, Debug)]
 pub struct Hotkey {
@@ -125,6 +125,50 @@ impl HotkeysStore {
 
 #[derive(Serialize, Type, tauri_specta::Event, Debug, Clone)]
 pub struct OnEscapePress;
+
+/// Cmd+C over a pinned card. The overlay is a non-activating panel and never
+/// becomes key window, so it receives no key events of its own. The shortcut is
+/// therefore registered globally, but only while the overlay armed it.
+#[derive(Serialize, Type, tauri_specta::Event, Debug, Clone)]
+pub struct OnPinCopyPress;
+
+#[derive(Default)]
+pub struct PinCopyShortcut(Mutex<bool>);
+
+/// Built the same way as the stored hotkeys instead of parsing a string: the
+/// parser picks its own modifier bit, and the handler then never matched.
+fn pin_copy_shortcut() -> Shortcut {
+    Shortcut::new(Some(Modifiers::META), Code::KeyC)
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(skip(app))]
+pub fn set_pin_copy_shortcut_active(app: AppHandle, active: bool) {
+    let state = app.state::<PinCopyShortcut>();
+    let global_shortcut = app.global_shortcut();
+
+    let mut registered = state.0.lock().unwrap_or_else(|e| e.into_inner());
+    if *registered == active {
+        return;
+    }
+
+    if active {
+        match global_shortcut.register(pin_copy_shortcut()) {
+            Ok(()) => {
+                *registered = true;
+                debug!("Grabbed the pin copy shortcut");
+            }
+            Err(err) => error!("Failed to grab the pin copy shortcut: {err}"),
+        }
+    } else {
+        if let Err(err) = global_shortcut.unregister(pin_copy_shortcut()) {
+            debug!("Failed to release the pin copy shortcut: {err}");
+        }
+        *registered = false;
+        debug!("Released the pin copy shortcut");
+    }
+}
 
 pub type HotkeysState = Mutex<HotkeysStore>;
 
@@ -307,6 +351,19 @@ pub fn init(app: &AppHandle) {
             .with_handler(|app, shortcut, event| {
                 if !matches!(event.state(), HotKeyState::Pressed) {
                     return;
+                }
+
+                debug!(%shortcut, "Global shortcut arrived");
+
+                // No modifier check: this shortcut is only registered while the
+                // overlay armed it, so any C arriving here is that one.
+                if shortcut.key == Code::KeyC
+                    && app
+                        .try_state::<PinCopyShortcut>()
+                        .is_some_and(|state| *state.0.lock().unwrap_or_else(|e| e.into_inner()))
+                {
+                    debug!("Pin copy shortcut fired");
+                    OnPinCopyPress.emit(app).ok();
                 }
 
                 if shortcut.key == Code::Escape {

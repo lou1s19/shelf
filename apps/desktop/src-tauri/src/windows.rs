@@ -482,6 +482,11 @@ impl CursorMonitorInfo {
         (pos_x, pos_y)
     }
 
+    fn top_center_position(&self, window_width: f64, offset_y: f64) -> (f64, f64) {
+        let pos_x = self.x + (self.width - window_width) / 2.0;
+        (pos_x, self.y + offset_y)
+    }
+
     fn bottom_center_position(
         &self,
         window_width: f64,
@@ -707,6 +712,7 @@ pub enum CapWindowId {
     ScreenshotEditor { id: u32 },
     Onboarding,
     Teleprompter,
+    TextPin,
 }
 
 impl FromStr for CapWindowId {
@@ -724,6 +730,7 @@ impl FromStr for CapWindowId {
             "debug" => Self::Debug,
             "onboarding" => Self::Onboarding,
             "teleprompter" => Self::Teleprompter,
+            "text-pin" => Self::TextPin,
             s if s.starts_with("editor-") => Self::Editor {
                 id: s
                     .replace("editor-", "")
@@ -773,6 +780,7 @@ impl std::fmt::Display for CapWindowId {
             Self::ScreenshotEditor { id } => write!(f, "screenshot-editor-{id}"),
             Self::Onboarding => write!(f, "onboarding"),
             Self::Teleprompter => write!(f, "teleprompter"),
+            Self::TextPin => write!(f, "text-pin"),
         }
     }
 }
@@ -796,6 +804,7 @@ impl CapWindowId {
             Self::RecordingsOverlay => "Shelf Recordings Overlay".to_string(),
             Self::TargetSelectOverlay { .. } => "Shelf Target Select".to_string(),
             Self::Teleprompter => "Shelf Teleprompter".to_string(),
+            Self::TextPin => "Shelf Copied Text".to_string(),
             _ => "Shelf".to_string(),
         }
     }
@@ -821,6 +830,7 @@ impl CapWindowId {
             self,
             Self::Onboarding
                 | Self::Teleprompter
+                | Self::TextPin
                 | Self::Camera
                 | Self::WindowCaptureOccluder { .. }
                 | Self::CaptureArea
@@ -846,6 +856,7 @@ impl CapWindowId {
                 Some(Some(LogicalPosition::new(20.0, 32.0)))
             }
             Self::Camera
+            | Self::TextPin
             | Self::Onboarding
             | Self::WindowCaptureOccluder { .. }
             | Self::CaptureArea
@@ -901,6 +912,9 @@ pub enum ShowCapWindow {
     },
     ModeSelect,
     Teleprompter,
+    TextPin {
+        text: String,
+    },
     ScreenshotEditor {
         path: PathBuf,
     },
@@ -1276,6 +1290,86 @@ impl ShowCapWindow {
         let cursor_monitor = CursorMonitorInfo::get();
 
         let window = match self {
+            Self::TextPin { text } => {
+                const WIDTH: f64 = 420.0;
+                const HEIGHT: f64 = 84.0;
+
+                // Under the camera housing on a notched display, under the menu
+                // bar everywhere else. The notch reports its height as a
+                // fraction of the display, so it survives scaled modes.
+                let top_offset = Display::get_containing_cursor()
+                    .and_then(|display| display.notch())
+                    .map(|notch| notch.height * cursor_monitor.height + 8.0)
+                    .unwrap_or(34.0);
+                let (pos_x, pos_y) = cursor_monitor.top_center_position(WIDTH, top_offset);
+
+                if let Some(window) = self.id(app).get(app) {
+                    let _ = window.set_position(logical_point_position(pos_x, pos_y));
+                    let _ = window.show();
+                    return Ok(window);
+                }
+
+                #[cfg(target_os = "macos")]
+                let panel_activation_guard = permissions::prepare_macos_panel_window(app);
+
+                let window = self
+                    .window_builder(app, "/text-pin")
+                    .resizable(false)
+                    .maximized(false)
+                    .maximizable(false)
+                    .minimizable(false)
+                    .always_on_top(true)
+                    .visible_on_all_workspaces(true)
+                    .transparent(true)
+                    .shadow(false)
+                    .skip_taskbar(true)
+                    .inner_size(WIDTH, HEIGHT)
+                    .initialization_script(format!(
+                        "window.__SHELF__ = window.__SHELF__ ?? {{}};
+                         window.__SHELF__.pinText = {};",
+                        serde_json::to_string(text).expect("Failed to serialize recognized text")
+                    ))
+                    .build()?;
+                lock_window_text_scale(&window);
+
+                let _ = window.set_position(logical_point_position(pos_x, pos_y));
+
+                #[cfg(target_os = "macos")]
+                {
+                    app.run_on_main_thread({
+                        let window = window.clone();
+                        let panel_activation_guard = panel_activation_guard;
+                        move || {
+                            let _panel_activation_guard = panel_activation_guard;
+                            use crate::panel_manager::try_to_panel;
+                            use tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior;
+
+                            let panel = match try_to_panel(&window) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    tracing::error!("Failed to convert text pin to panel: {e}");
+                                    let _ = window.show();
+                                    return;
+                                }
+                            };
+
+                            panel.set_collection_behaviour(
+                                NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
+                                    | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenAuxiliary,
+                            );
+                            panel.set_level(TELEPROMPTER_PANEL_LEVEL as i32);
+                            panel.order_front_regardless();
+                            panel.show();
+                        }
+                    })
+                    .ok();
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                let _ = window.show();
+
+                window
+            }
             Self::TargetSelectOverlay {
                 display_id,
                 target_mode,
@@ -2670,6 +2764,7 @@ impl ShowCapWindow {
             ShowCapWindow::InProgressRecording { .. } => CapWindowId::RecordingControls,
             ShowCapWindow::ModeSelect => CapWindowId::ModeSelect,
             ShowCapWindow::Teleprompter => CapWindowId::Teleprompter,
+            ShowCapWindow::TextPin { .. } => CapWindowId::TextPin,
             ShowCapWindow::Onboarding => CapWindowId::Onboarding,
             ShowCapWindow::ScreenshotEditor { path } => {
                 let state = app.state::<ScreenshotEditorWindowIds>();

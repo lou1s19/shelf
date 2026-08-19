@@ -3225,6 +3225,15 @@ fn close_recordings_overlay_window(app: AppHandle) {
     }
 }
 
+#[tauri::command]
+#[specta::specta]
+#[instrument(skip(app))]
+fn close_text_pin_window(app: AppHandle) {
+    if let Some(window) = CapWindowId::TextPin.get(&app) {
+        let _ = window.hide();
+    }
+}
+
 #[tauri::command(async)]
 #[specta::specta]
 #[instrument(skip(_app))]
@@ -4422,6 +4431,8 @@ fn specta_builder() -> tauri_specta::Builder {
             list_audio_devices,
             list_system_fonts,
             close_recordings_overlay_window,
+            close_text_pin_window,
+            hotkeys::set_pin_copy_shortcut_active,
             drag_out::start_file_drag,
             fake_window::set_fake_window_bounds,
             fake_window::remove_fake_window,
@@ -4572,6 +4583,8 @@ fn specta_builder() -> tauri_specta::Builder {
             recordings_locations::RecordingsMigrationProgress,
             target_select_overlay::TargetUnderCursor,
             hotkeys::OnEscapePress,
+            hotkeys::OnPinCopyPress,
+            recording::TextPinAdded,
             import::VideoImportProgress,
             SetCaptureAreaPending,
             DevicesUpdated,
@@ -4809,6 +4822,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             app.manage(http_client::RetryableHttpClient::default());
             app.manage(PendingScreenshots::default());
             app.manage(hotkeys::PendingOcrCapture::default());
+            app.manage(hotkeys::PinCopyShortcut::default());
             app.manage(FinalizingRecordings::default());
             app.manage(updates::UpdatesState::default());
             updates::spawn_background_loop(app.clone());
