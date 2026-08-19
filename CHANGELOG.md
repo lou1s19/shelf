@@ -21,6 +21,49 @@ gestalterisch nochmal ansehen.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
 
+## 2026-08-19 (Menüleisten-App: Hauptfenster entfernt)
+
+Shelf hat kein Hauptfenster mehr. Beim Start erscheint nichts, die Bedienung
+läuft komplett über das Menüleisten-Symbol. Es gab die Steuerung vorher doppelt,
+im Tray und im Fenster.
+
+- **Fenster ist raus.** `CapWindowId::Main` und `ShowCapWindow::Main` sind
+  gelöscht, dazu die Route `/` und der Ordner `new-main/`. Die Teile, die auch
+  das Auswahl-Overlay und der Editor nutzen (Kamera- und Mikrofonauswahl,
+  Ziel-Kacheln), liegen jetzt unter `src/components/recording/`.
+- **Neue Einstellungsseite „Devices".** Auflösung und Bildrate pro Kamera,
+  Abtastrate und Kanäle pro Mikrofon. Das gab es vorher nur im Hauptfenster.
+- **Tray neu:** „Record Camera Only", „Teleprompter", „Permissions & Tour".
+  „Open Main Window" ist weg. Der Teleprompter wird jetzt in Rust gebaut, das
+  Fenster wurde vorher aus dem JavaScript des Hauptfensters geöffnet.
+
+Vier Dinge hingen am Fenster und mussten mitgefixt werden, sonst hätte die App
+Funktionen verloren:
+
+1. **App beendete sich beim Schließen des letzten Fensters.** Tauri meldet dann
+   `ExitRequested`. Vorher fiel das nie auf, weil das Hauptfenster beim
+   Schließen nur versteckt wurde und damit immer existierte. `ExitRequested`
+   ohne Exit-Code heißt jetzt „bleib laufen". Beenden geht weiter über das Tray
+   und über Cmd+Q, beide setzen vorher den Exit-Zustand. Zwei Tests dazu in
+   `tests/exit_shutdown.rs`.
+2. **Kamera- und Mikrofonauswahl wurde nach jeder Aufnahme geleert.** Der Zweig
+   in `handle_recording_end` lief bisher nie, weil das Fenster immer da war.
+3. **Prewarm für GPU, Schriften und Screenshot-Editor** hing am Event
+   `main-window-ready`. Läuft jetzt direkt beim Start, sonst wäre der erste
+   Screenshot wieder rund drei Sekunden langsam gewesen.
+4. **Fehler beim Aufnahmestart waren stumm.** Sie liefen als Toast ins
+   Hauptfenster. Jetzt kommen sie als Systemmeldung, ebenso ein fehlendes Gerät
+   und eine beschädigte Instant-Aufnahme.
+
+Kleinkram: Kamera-Feed in Camera-Only hängt am Kamerafenster statt am
+Hauptfenster. Die strikte Rechteprüfung beim Dock-Klick macht jetzt der
+Reopen-Handler selbst. Tote Einstellungen entfernt
+(`mainWindowRecordingStartBehaviour`, `postDeletionBehaviour`,
+`mainWindowPosition`) samt ihrer Oberfläche.
+
+Nicht übernommen: das Ablegen von Videodateien auf dem Fenster. Import läuft
+über „Import Media..." im Tray.
+
 ## 2026-08-19 (.env dokumentiert, Ordner ersetzbar)
 
 Die letzte undokumentierte Sache im Repo ist weg. In der gitignorierten `.env`

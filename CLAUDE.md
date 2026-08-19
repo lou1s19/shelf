@@ -20,6 +20,12 @@ Remotes:
 - **Lokal, ohne Cloud:** Es gibt keine Konten, kein Hochladen, keine Teilen-Links,
   kein Cap Pro, keine Telemetrie und keinen Updater. Wer so etwas wieder einbaut,
   baut ein neues Produkt, nicht dieses.
+- **Reine Menüleisten-App, seit 2026-08-19.** Es gibt **kein Hauptfenster**.
+  Beim Start erscheint nichts, bedient wird über das Tray-Symbol. Fenster gibt es
+  nur noch für Einstellungen, Editoren, Onboarding, Kamera, Teleprompter und die
+  Overlays. Kein `CapWindowId::Main` wieder einführen: an dem Fenster hingen der
+  Prewarm, das Beenden-Verhalten und die Geräteauswahl (siehe `CHANGELOG.md`).
+  Geteilte Aufnahme-Bausteine liegen unter `apps/desktop/src/components/recording/`.
 - **Im Repo liegt nur noch die Desktop-App.** Caps Website, Mobile-App,
   Chrome-Erweiterung, Discord-Bot, Media-Server und Cloud-Infrastruktur sind
   gelöscht. `git log` hat sie noch, falls du etwas nachschlagen willst.

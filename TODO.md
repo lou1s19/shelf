@@ -1,14 +1,19 @@
 # Shelf — offene Punkte
 
-Übergabe an die nächste Sitzung. Stand: 2026-08-18, abends.
+Übergabe an die nächste Sitzung. Stand: 2026-08-19, vormittags.
 Verlauf und Begründungen stehen im `CHANGELOG.md`, Projektregeln in `CLAUDE.md`.
 
 ## Zuerst: noch nicht am lebenden Objekt geprüft
 
-Der ganze Umbau vom 18.08. ist gebaut, übersetzt sauber und ist committet, aber
-**Louis hat ihn noch nicht in Betrieb gesehen**. Vor allem anderen einmal bauen
-(`scripts/install-shelf.sh`, vorher `pkill -f "Shelf.app/Contents"`) und diese
-fünf Dinge live prüfen:
+Gebaut und installiert ist alles, die App läuft. **Louis hat den Umbau aber
+noch nicht selbst benutzt.** Diese Dinge live prüfen (bauen mit
+`scripts/install-shelf.sh`, vorher `pkill -f "Shelf.app/Contents"`):
+
+0. **Kamera und Mikrofon freigeben.** macOS hat beide Rechte für den neuen Build
+   noch nicht erteilt, deshalb ist die Geräteliste leer. Im Tray über
+   „Permissions & Tour" erteilen, danach in Einstellungen → Devices prüfen, ob
+   Kameras und Mikrofone mit ihren Formaten auftauchen. Solange das fehlt, ist
+   die neue Seite ungetestet.
 
 1. Fühlt sich der Screenshot jetzt sofort an? Erwartung 100 bis 200 ms bis das
    Pin steht, vorher rund 3 Sekunden.
@@ -80,6 +85,15 @@ Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
    sind macOS-Runner kostenlos, dann `cargo check -p cap-desktop` ergänzen.
 
 ## Erledigt am 2026-08-19 (nicht nochmal anfassen)
+
+Shelf ist eine reine Menüleisten-App, das Hauptfenster ist gelöscht. Details im
+`CHANGELOG.md`. Kurz: Route `/` und `new-main/` weg, geteilte Bausteine unter
+`src/components/recording/`, neue Einstellungsseite „Devices" für die
+Geräte-Formate, Tray um „Record Camera Only", „Teleprompter" und
+„Permissions & Tour" ergänzt. Vier Kopplungen ans Fenster waren mitzufixen:
+Beenden beim Schließen des letzten Fensters, geleerte Geräteauswahl nach jeder
+Aufnahme, Prewarm am Fenster-Event und stumme Startfehler.
+
 
 `.env.example` liegt jetzt im Wurzelverzeichnis und ist committet. In der `.env`
 standen nur `NODE_ENV=development` und ein `VITE_SERVER_URL=https://cap.so`, das
