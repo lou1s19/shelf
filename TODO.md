@@ -61,6 +61,13 @@ Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
 
 ## Danach
 
+3b. **Windows-Installer-Bilder tragen noch Cap.** `assets/nsis-header.bmp` und
+   `assets/nsis-sidebar.bmp` zeigen Caps Logo und „Beautiful screen recordings,
+   owned by you." Nur sichtbar, wenn jemand für Windows baut, was gerade
+   niemand tut. Beim Erneuern denselben Weg wie beim DMG-Hintergrund nehmen:
+   selbst zeichnen statt generieren, sonst wird der Text falsch.
+
+
 4. **Eigener Update-Weg.** `apps/desktop/src-tauri/src/updates.rs` ist ein
    Platzhalter, der immer „keine Aktualisierung" meldet. Caps Endpunkt ist raus,
    weil er Shelf durch Cap ersetzt hätte. Nötig wäre ein eigener Release-Feed

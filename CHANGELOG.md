@@ -21,6 +21,24 @@ gestalterisch nochmal ansehen.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
 
+## 2026-08-19 (DMG-Installer trug noch Cap-Namen)
+
+Das Installationsfenster sagte weiter „Drag and Drop **Cap** to the Applications
+folder" und „Cap requires macOS 13.1 or greater", obwohl Symbol und App längst
+Shelf heißen.
+
+- `assets/dmg-background.png` neu gezeichnet, gleiche Maße, gleiche Farben,
+  gleiche Schriftgröße (Kappenhöhe auf das Pixel geprüft), nur mit Shelf im Text.
+  Erzeugt aus HTML mit Inter über Chrome headless, nicht generativ, damit die
+  Schrift stimmt. 144 dpi wie das Original, sonst zeigt der Finder es falsch.
+- `minimumSystemVersion: "13.1"` in der `tauri.conf.json` ergänzt. Im Bundle
+  stand vorher Tauris Vorgabe 10.13, das Installationsfenster behauptete 13.1.
+  Jetzt sagen beide dasselbe.
+
+Noch offen: Die Windows-Installer-Bilder (`assets/nsis-header.bmp`,
+`assets/nsis-sidebar.bmp`) zeigen weiter Caps Logo und Spruch. Fällt nicht auf,
+weil Shelf nicht für Windows gebaut wird.
+
 ## 2026-08-19 (Menüleisten-App: Hauptfenster entfernt)
 
 Shelf hat kein Hauptfenster mehr. Beim Start erscheint nichts, die Bedienung
