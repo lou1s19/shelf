@@ -1,17 +1,12 @@
 use crate::{
-    NewScreenshotAdded, NewStudioRecordingAdded, RecordingStarted, RecordingStopped,
-    RequestOpenSettings, recording,
+    RecordingStarted, RecordingStopped, RequestOpenSettings, recording,
     recording_settings::{RecordingSettingsStore, RecordingTargetMode},
     windows::ShowCapWindow,
 };
 use cap_recording::{RecordingMode, feeds::camera::DeviceOrModelID};
 
-use cap_project::{RecordingMeta, RecordingMetaInner};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 use tauri::menu::{CheckMenuItem, IconMenuItem, MenuId, PredefinedMenuItem, Submenu};
 use tauri::{
     AppHandle,
@@ -20,16 +15,10 @@ use tauri::{
     tray::{TrayIcon, TrayIconBuilder},
 };
 use tauri::{Listener, Manager};
-use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_opener::OpenerExt;
 use tauri_specta::Event;
 
-const PREVIOUS_ITEM_PREFIX: &str = "previous_item_";
 const CAMERA_ITEM_PREFIX: &str = "camera_item_";
 const MIC_ITEM_PREFIX: &str = "mic_item_";
-const MAX_PREVIOUS_ITEMS: usize = 6;
-const MAX_TITLE_LENGTH: usize = 30;
-const THUMBNAIL_SIZE: u32 = 32;
 
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy)]
@@ -81,12 +70,10 @@ pub enum TrayItem {
     ScreenshotWindow,
     ScreenshotArea,
     OpenTeleprompter,
-    ImportVideo,
     ViewAllRecordings,
     ViewAllScreenshots,
     OpenSettings,
     Quit,
-    PreviousItem(String),
     ModeStudio,
     ModeInstant,
     ModeScreenshot,
@@ -110,14 +97,10 @@ impl From<TrayItem> for MenuId {
             TrayItem::ScreenshotWindow => "screenshot_window",
             TrayItem::ScreenshotArea => "screenshot_area",
             TrayItem::OpenTeleprompter => "open_teleprompter",
-            TrayItem::ImportVideo => "import_video",
             TrayItem::ViewAllRecordings => "view_all_recordings",
             TrayItem::ViewAllScreenshots => "view_all_screenshots",
             TrayItem::OpenSettings => "open_settings",
             TrayItem::Quit => "quit",
-            TrayItem::PreviousItem(id) => {
-                return format!("{PREVIOUS_ITEM_PREFIX}{id}").into();
-            }
             TrayItem::ModeStudio => "mode_studio",
             TrayItem::ModeInstant => "mode_instant",
             TrayItem::ModeScreenshot => "mode_screenshot",
@@ -140,10 +123,6 @@ impl TryFrom<MenuId> for TrayItem {
     fn try_from(value: MenuId) -> Result<Self, Self::Error> {
         let id_str = value.0.as_str();
 
-        if let Some(path) = id_str.strip_prefix(PREVIOUS_ITEM_PREFIX) {
-            return Ok(TrayItem::PreviousItem(path.to_string()));
-        }
-
         if let Some(id) = id_str.strip_prefix(CAMERA_ITEM_PREFIX) {
             return Ok(TrayItem::SelectCamera(id.to_string()));
         }
@@ -162,7 +141,6 @@ impl TryFrom<MenuId> for TrayItem {
             "screenshot_window" => Ok(TrayItem::ScreenshotWindow),
             "screenshot_area" => Ok(TrayItem::ScreenshotArea),
             "open_teleprompter" => Ok(TrayItem::OpenTeleprompter),
-            "import_video" => Ok(TrayItem::ImportVideo),
             "view_all_recordings" => Ok(TrayItem::ViewAllRecordings),
             "view_all_screenshots" => Ok(TrayItem::ViewAllScreenshots),
             "open_settings" => Ok(TrayItem::OpenSettings),
@@ -175,216 +153,6 @@ impl TryFrom<MenuId> for TrayItem {
             value => Err(format!("Invalid tray item id {value}")),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-enum PreviousItemType {
-    StudioRecording,
-    InstantRecording {
-        #[allow(dead_code)]
-        link: Option<String>,
-    },
-    Screenshot,
-}
-
-#[derive(Clone)]
-struct CachedPreviousItem {
-    path: PathBuf,
-    pretty_name: String,
-    thumbnail: Option<Vec<u8>>,
-    thumbnail_width: u32,
-    thumbnail_height: u32,
-    item_type: PreviousItemType,
-    created_at: std::time::SystemTime,
-}
-
-#[derive(Default)]
-struct PreviousItemsCache {
-    items: Vec<CachedPreviousItem>,
-}
-
-fn screenshots_path(app: &AppHandle) -> PathBuf {
-    let path = app.path().app_data_dir().unwrap().join("screenshots");
-    std::fs::create_dir_all(&path).unwrap_or_default();
-    path
-}
-
-fn truncate_title(title: &str) -> String {
-    if title.chars().count() <= MAX_TITLE_LENGTH {
-        title.to_string()
-    } else {
-        let truncate_at = MAX_TITLE_LENGTH - 1;
-        let byte_index = title
-            .char_indices()
-            .nth(truncate_at)
-            .map(|(i, _)| i)
-            .unwrap_or(title.len());
-        format!("{}…", &title[..byte_index])
-    }
-}
-
-fn load_thumbnail_data(path: &PathBuf) -> Option<(Vec<u8>, u32, u32)> {
-    use image::imageops::FilterType;
-    use image::{GenericImageView, RgbaImage};
-
-    let image_data = std::fs::read(path).ok()?;
-    let img = image::load_from_memory(&image_data).ok()?;
-
-    let (orig_w, orig_h) = img.dimensions();
-    let size = THUMBNAIL_SIZE;
-
-    let scale = (size as f32 / orig_w as f32).max(size as f32 / orig_h as f32);
-    let scaled_w = (orig_w as f32 * scale).round() as u32;
-    let scaled_h = (orig_h as f32 * scale).round() as u32;
-
-    let scaled = img.resize_exact(scaled_w, scaled_h, FilterType::Triangle);
-
-    let x_offset = (scaled_w.saturating_sub(size)) / 2;
-    let y_offset = (scaled_h.saturating_sub(size)) / 2;
-
-    let mut result = RgbaImage::new(size, size);
-    for y in 0..size {
-        for x in 0..size {
-            let src_x = x + x_offset;
-            let src_y = y + y_offset;
-            if src_x < scaled_w && src_y < scaled_h {
-                result.put_pixel(x, y, scaled.get_pixel(src_x, src_y));
-            }
-        }
-    }
-
-    Some((result.into_raw(), size, size))
-}
-
-fn load_single_item(
-    path: &PathBuf,
-    screenshots_dir: &PathBuf,
-    load_thumbnail: bool,
-) -> Option<CachedPreviousItem> {
-    if !path.is_dir() {
-        return None;
-    }
-
-    let meta = RecordingMeta::load_for_project(path).ok()?;
-    let created_at = path
-        .metadata()
-        .and_then(|m| m.created())
-        .unwrap_or_else(|_| std::time::SystemTime::now());
-
-    let is_screenshot = path.extension().and_then(|s| s.to_str()) == Some("cap")
-        && path.parent().map(|p| p == screenshots_dir).unwrap_or(false);
-
-    let (thumbnail_path, item_type) = if is_screenshot {
-        let png_path = std::fs::read_dir(path).ok().and_then(|dir| {
-            dir.flatten()
-                .find(|e| e.path().extension().and_then(|s| s.to_str()) == Some("png"))
-                .map(|e| e.path())
-        });
-        (png_path, PreviousItemType::Screenshot)
-    } else {
-        let thumb = path.join("screenshots/display.jpg");
-        let thumb_path = if thumb.exists() { Some(thumb) } else { None };
-        let item_type = match &meta.inner {
-            RecordingMetaInner::Studio(_) => PreviousItemType::StudioRecording,
-            RecordingMetaInner::Instant(_) => PreviousItemType::InstantRecording {
-                link: meta.sharing.as_ref().map(|s| s.link.clone()),
-            },
-        };
-        (thumb_path, item_type)
-    };
-
-    let (thumbnail, thumbnail_width, thumbnail_height) = if load_thumbnail {
-        thumbnail_path
-            .as_ref()
-            .and_then(load_thumbnail_data)
-            .map(|(data, w, h)| (Some(data), w, h))
-            .unwrap_or((None, 0, 0))
-    } else {
-        (None, 0, 0)
-    };
-
-    Some(CachedPreviousItem {
-        path: path.clone(),
-        pretty_name: meta.pretty_name,
-        thumbnail,
-        thumbnail_width,
-        thumbnail_height,
-        item_type,
-        created_at,
-    })
-}
-
-fn load_all_previous_items(app: &AppHandle, load_thumbnails: bool) -> Vec<CachedPreviousItem> {
-    let mut items = Vec::new();
-    let screenshots_dir = screenshots_path(app);
-
-    for recordings_dir in crate::recordings_locations::known_recordings_dirs(app) {
-        let Ok(entries) = std::fs::read_dir(&recordings_dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            if let Some(item) = load_single_item(&entry.path(), &screenshots_dir, load_thumbnails) {
-                items.push(item);
-            }
-        }
-    }
-
-    if screenshots_dir.exists()
-        && let Ok(entries) = std::fs::read_dir(&screenshots_dir)
-    {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("cap")
-                && let Some(item) = load_single_item(&path, &screenshots_dir, load_thumbnails)
-            {
-                items.push(item);
-            }
-        }
-    }
-
-    items.sort_by_key(|b| std::cmp::Reverse(b.created_at));
-    items.truncate(MAX_PREVIOUS_ITEMS);
-    items
-}
-
-fn create_previous_submenu(
-    app: &AppHandle,
-    cache: &PreviousItemsCache,
-) -> tauri::Result<Submenu<tauri::Wry>> {
-    if cache.items.is_empty() {
-        let submenu = Submenu::with_id(app, "previous", "Previous", false)?;
-        submenu.append(&MenuItem::with_id(
-            app,
-            "previous_empty",
-            "No recent items",
-            false,
-            None::<&str>,
-        )?)?;
-        return Ok(submenu);
-    }
-
-    let submenu = Submenu::with_id(app, "previous", "Previous", true)?;
-
-    for item in &cache.items {
-        let id = TrayItem::PreviousItem(item.path.to_string_lossy().to_string());
-        let title = truncate_title(&item.pretty_name);
-
-        let type_indicator = match &item.item_type {
-            PreviousItemType::StudioRecording => "🎬 ",
-            PreviousItemType::InstantRecording { .. } => "⚡ ",
-            PreviousItemType::Screenshot => "📷 ",
-        };
-        let display_title = format!("{type_indicator}{title}");
-
-        let icon = item.thumbnail.as_ref().map(|data| {
-            Image::new_owned(data.clone(), item.thumbnail_width, item.thumbnail_height)
-        });
-
-        let menu_item = IconMenuItem::with_id(app, id, display_title, true, icon, None::<&str>)?;
-        submenu.append(&menu_item)?;
-    }
-
-    Ok(submenu)
 }
 
 fn get_current_mode(app: &AppHandle) -> RecordingMode {
@@ -419,16 +187,12 @@ struct DevicesUpdatedPayload {
 }
 
 pub(crate) struct TrayMenuCache {
-    cache: Arc<Mutex<PreviousItemsCache>>,
     devices: Arc<Mutex<TrayDeviceCache>>,
     is_recording: Arc<AtomicBool>,
 }
 
 pub(crate) fn refresh_tray_menu_for_app(app: &AppHandle) {
-    let Some(state) = app.try_state::<TrayMenuCache>() else {
-        return;
-    };
-    refresh_tray_menu(app, &state.cache);
+    refresh_tray_menu(app);
 }
 
 fn camera_matches(info: &cap_camera::CameraInfo, selected: &DeviceOrModelID) -> bool {
@@ -581,7 +345,7 @@ fn create_record_screen_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri:
     Ok(submenu)
 }
 
-fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result<Menu<tauri::Wry>> {
+fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if should_use_minimal_onboarding_tray_menu(app) {
         return Menu::with_items(
             app,
@@ -621,7 +385,6 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         None => (TrayDeviceCache::default(), false),
     };
 
-    let previous_submenu = create_previous_submenu(app, cache)?;
     let camera_submenu = create_camera_submenu(app, &devices, settings.camera_id.as_ref())?;
     let microphone_submenu =
         create_microphone_submenu(app, &devices, settings.mic_name.as_deref())?;
@@ -694,7 +457,6 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
 
     // 5. Everything already captured.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&previous_submenu)?;
     menu.append(&MenuItem::with_id(
         app,
         TrayItem::ViewAllRecordings,
@@ -714,13 +476,6 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
-        TrayItem::ImportVideo,
-        "Import Media...",
-        true,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
         TrayItem::OpenTeleprompter,
         "Teleprompter",
         true,
@@ -730,13 +485,6 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
         app,
         TrayItem::OpenSettings,
         "Settings",
-        true,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::RequestPermissions,
-        "Permissions & Tour",
         true,
         None::<&str>,
     )?)?;
@@ -760,87 +508,18 @@ fn build_tray_menu(app: &AppHandle, cache: &PreviousItemsCache) -> tauri::Result
     Ok(menu)
 }
 
-fn add_new_item_to_cache(cache: &Arc<Mutex<PreviousItemsCache>>, app: &AppHandle, path: PathBuf) {
-    let screenshots_dir = screenshots_path(app);
-
-    let Some(new_item) = load_single_item(&path, &screenshots_dir, true) else {
-        return;
-    };
-
-    let mut cache_guard = cache.lock().unwrap();
-
-    cache_guard.items.retain(|item| item.path != path);
-
-    cache_guard.items.insert(0, new_item);
-
-    cache_guard.items.truncate(MAX_PREVIOUS_ITEMS);
-}
-
-fn refresh_tray_menu(app: &AppHandle, cache: &Arc<Mutex<PreviousItemsCache>>) {
+fn refresh_tray_menu(app: &AppHandle) {
     let app_clone = app.clone();
-    let cache_clone = cache.clone();
 
     let _ = app.run_on_main_thread(move || {
         let Some(tray) = app_clone.tray_by_id("tray") else {
             return;
         };
 
-        let cache_guard = cache_clone.lock().unwrap();
-        if let Ok(menu) = build_tray_menu(&app_clone, &cache_guard) {
+        if let Ok(menu) = build_tray_menu(&app_clone) {
             let _ = tray.set_menu(Some(menu));
         }
     });
-}
-
-fn handle_previous_item_click(app: &AppHandle, path_str: &str) {
-    let path = PathBuf::from(path_str);
-
-    let screenshots_dir = screenshots_path(app);
-    let is_screenshot = path.extension().and_then(|s| s.to_str()) == Some("cap")
-        && path.parent().map(|p| p == screenshots_dir).unwrap_or(false);
-
-    if is_screenshot {
-        let app = app.clone();
-        let screenshot_path = path;
-        tokio::spawn(async move {
-            let _ = ShowCapWindow::ScreenshotEditor {
-                path: screenshot_path,
-            }
-            .show(&app)
-            .await;
-        });
-        return;
-    }
-
-    let meta = match RecordingMeta::load_for_project(&path) {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::error!("Failed to load recording meta for previous item: {e}");
-            return;
-        }
-    };
-
-    match &meta.inner {
-        RecordingMetaInner::Studio(_) => {
-            let app = app.clone();
-            let project_path = path.clone();
-            tokio::spawn(async move {
-                let _ = ShowCapWindow::Editor { project_path }.show(&app).await;
-            });
-        }
-        RecordingMetaInner::Instant(_) => {
-            if let Some(sharing) = &meta.sharing {
-                let _ = app.opener().open_url(&sharing.link, None::<String>);
-            } else {
-                let mp4_path = path.join("content/output.mp4");
-                if mp4_path.exists() {
-                    let _ = app
-                        .opener()
-                        .open_path(mp4_path.to_str().unwrap_or_default(), None::<String>);
-                }
-            }
-        }
-    }
 }
 
 pub fn get_tray_icon() -> &'static [u8] {
@@ -939,18 +618,14 @@ pub fn update_tray_icon_for_mode(app: &AppHandle, mode: RecordingMode) {
     }
 }
 
-fn handle_mode_selection(
-    app: &AppHandle,
-    mode: RecordingMode,
-    cache: &Arc<Mutex<PreviousItemsCache>>,
-) {
+fn handle_mode_selection(app: &AppHandle, mode: RecordingMode) {
     if let Err(e) = RecordingSettingsStore::set_mode(app, mode) {
         tracing::error!("Failed to set recording mode: {e}");
         return;
     }
 
     update_tray_icon_for_mode(app, mode);
-    refresh_tray_menu(app, cache);
+    refresh_tray_menu(app);
 }
 
 fn take_screenshot_of_cursor_display(app: &AppHandle) {
@@ -983,26 +658,21 @@ enum PickerKind {
 /// The menu offers both halves at once, so a screenshot entry has to put the app
 /// into screenshot mode and a record entry has to take it out again. Instant is
 /// kept when it was already selected; only screenshot mode falls back to Studio.
-fn switch_to_recording_mode(app: &AppHandle, cache: &Arc<Mutex<PreviousItemsCache>>) {
+fn switch_to_recording_mode(app: &AppHandle) {
     if get_current_mode(app) != RecordingMode::Screenshot {
         return;
     }
-    handle_mode_selection(app, RecordingMode::Studio, cache);
+    handle_mode_selection(app, RecordingMode::Studio);
 }
 
-fn open_picker_in(
-    app: &AppHandle,
-    cache: &Arc<Mutex<PreviousItemsCache>>,
-    target_mode: RecordingTargetMode,
-    kind: PickerKind,
-) {
+fn open_picker_in(app: &AppHandle, target_mode: RecordingTargetMode, kind: PickerKind) {
     match kind {
         PickerKind::Screenshot => {
             if get_current_mode(app) != RecordingMode::Screenshot {
-                handle_mode_selection(app, RecordingMode::Screenshot, cache);
+                handle_mode_selection(app, RecordingMode::Screenshot);
             }
         }
-        PickerKind::Recording => switch_to_recording_mode(app, cache),
+        PickerKind::Recording => switch_to_recording_mode(app),
     }
 
     let app = app.clone();
@@ -1034,11 +704,7 @@ fn handle_start_stop(app: &AppHandle, is_recording: &Arc<AtomicBool>) {
     let _ = crate::RequestStartRecording { mode }.emit(app);
 }
 
-fn handle_camera_selection(
-    app: &AppHandle,
-    device_id: &str,
-    cache: &Arc<Mutex<PreviousItemsCache>>,
-) {
+fn handle_camera_selection(app: &AppHandle, device_id: &str) {
     let id = if device_id.is_empty() {
         None
     } else {
@@ -1064,7 +730,7 @@ fn handle_camera_selection(
         return;
     }
 
-    refresh_tray_menu(app, cache);
+    refresh_tray_menu(app);
 
     let app = app.clone();
     tokio::spawn(async move {
@@ -1074,11 +740,7 @@ fn handle_camera_selection(
     });
 }
 
-fn handle_microphone_selection(
-    app: &AppHandle,
-    name: &str,
-    cache: &Arc<Mutex<PreviousItemsCache>>,
-) {
+fn handle_microphone_selection(app: &AppHandle, name: &str) {
     let label = (!name.is_empty()).then(|| name.to_string());
 
     if let Err(e) = RecordingSettingsStore::set_mic_name(app, label.clone()) {
@@ -1086,7 +748,7 @@ fn handle_microphone_selection(
         return;
     }
 
-    refresh_tray_menu(app, cache);
+    refresh_tray_menu(app);
 
     let app = app.clone();
     tokio::spawn(async move {
@@ -1096,7 +758,7 @@ fn handle_microphone_selection(
     });
 }
 
-fn handle_system_audio_toggle(app: &AppHandle, cache: &Arc<Mutex<PreviousItemsCache>>) {
+fn handle_system_audio_toggle(app: &AppHandle) {
     let enabled = RecordingSettingsStore::get(app)
         .ok()
         .flatten()
@@ -1108,25 +770,19 @@ fn handle_system_audio_toggle(app: &AppHandle, cache: &Arc<Mutex<PreviousItemsCa
         return;
     }
 
-    refresh_tray_menu(app, cache);
+    refresh_tray_menu(app);
 }
 
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let items = load_all_previous_items(app, false);
-    let cache = Arc::new(Mutex::new(PreviousItemsCache { items }));
     let devices = Arc::new(Mutex::new(TrayDeviceCache::default()));
     let is_recording = Arc::new(AtomicBool::new(false));
 
     app.manage(TrayMenuCache {
-        cache: cache.clone(),
         devices: devices.clone(),
         is_recording: is_recording.clone(),
     });
 
-    let menu = {
-        let cache_guard = cache.lock().unwrap();
-        build_tray_menu(app, &cache_guard)?
-    };
+    let menu = build_tray_menu(app)?;
     let app = app.clone();
 
     let current_mode = get_current_mode(&app);
@@ -1139,7 +795,6 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .show_menu_on_left_click(true)
         .on_menu_event({
             let app_handle = app.clone();
-            let cache = cache.clone();
             let is_recording = is_recording.clone();
             move |app: &AppHandle, event| match TrayItem::try_from(event.id) {
                 Ok(TrayItem::StartStopRecording) => {
@@ -1154,7 +809,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     });
                 }
                 Ok(TrayItem::RecordCameraOnly) => {
-                    switch_to_recording_mode(app, &cache);
+                    switch_to_recording_mode(app);
 
                     // Camera-only has no target to pick, so it goes straight to
                     // recording with the saved camera.
@@ -1173,126 +828,22 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     });
                 }
                 Ok(TrayItem::RecordDisplay) => {
-                    open_picker_in(
-                        app,
-                        &cache,
-                        RecordingTargetMode::Display,
-                        PickerKind::Recording,
-                    );
+                    open_picker_in(app, RecordingTargetMode::Display, PickerKind::Recording);
                 }
                 Ok(TrayItem::RecordWindow) => {
-                    open_picker_in(
-                        app,
-                        &cache,
-                        RecordingTargetMode::Window,
-                        PickerKind::Recording,
-                    );
+                    open_picker_in(app, RecordingTargetMode::Window, PickerKind::Recording);
                 }
                 Ok(TrayItem::RecordArea) => {
-                    open_picker_in(
-                        app,
-                        &cache,
-                        RecordingTargetMode::Area,
-                        PickerKind::Recording,
-                    );
+                    open_picker_in(app, RecordingTargetMode::Area, PickerKind::Recording);
                 }
                 Ok(TrayItem::ScreenshotDisplay) => {
-                    open_picker_in(
-                        app,
-                        &cache,
-                        RecordingTargetMode::Display,
-                        PickerKind::Screenshot,
-                    );
+                    open_picker_in(app, RecordingTargetMode::Display, PickerKind::Screenshot);
                 }
                 Ok(TrayItem::ScreenshotWindow) => {
-                    open_picker_in(
-                        app,
-                        &cache,
-                        RecordingTargetMode::Window,
-                        PickerKind::Screenshot,
-                    );
+                    open_picker_in(app, RecordingTargetMode::Window, PickerKind::Screenshot);
                 }
                 Ok(TrayItem::ScreenshotArea) => {
-                    open_picker_in(
-                        app,
-                        &cache,
-                        RecordingTargetMode::Area,
-                        PickerKind::Screenshot,
-                    );
-                }
-                Ok(TrayItem::ImportVideo) => {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        let file_path = app
-                            .dialog()
-                            .file()
-                            .add_filter(
-                                "Media Files",
-                                &[
-                                    "mp4", "mov", "avi", "mkv", "webm", "wmv", "m4v", "flv", "png",
-                                    "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff",
-                                ],
-                            )
-                            .add_filter(
-                                "Video Files",
-                                &["mp4", "mov", "avi", "mkv", "webm", "wmv", "m4v", "flv"],
-                            )
-                            .add_filter(
-                                "Image Files",
-                                &["png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff"],
-                            )
-                            .blocking_pick_file();
-
-                        if let Some(file_path) = file_path {
-                            let path = match file_path.into_path() {
-                                Ok(p) => p,
-                                Err(e) => {
-                                    tracing::error!("Invalid file path: {e}");
-                                    return;
-                                }
-                            };
-
-                            if crate::import::is_supported_video_import_path(&path) {
-                                match crate::import::start_video_import(app.clone(), path).await {
-                                    Ok(project_path) => {
-                                        let _ =
-                                            ShowCapWindow::Editor { project_path }.show(&app).await;
-                                    }
-                                    Err(e) => {
-                                        tracing::error!("Failed to import video: {e}");
-                                        app.dialog()
-                                            .message(format!("Failed to import video: {e}"))
-                                            .title("Import Error")
-                                            .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                                            .blocking_show();
-                                    }
-                                }
-                            } else if crate::import::is_supported_image_import_path(&path) {
-                                match crate::import::start_image_import(app.clone(), path).await {
-                                    Ok(path) => {
-                                        let _ = ShowCapWindow::ScreenshotEditor { path }
-                                            .show(&app)
-                                            .await;
-                                    }
-                                    Err(e) => {
-                                        tracing::error!("Failed to import image: {e}");
-                                        app.dialog()
-                                            .message(format!("Failed to import image: {e}"))
-                                            .title("Import Error")
-                                            .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                                            .blocking_show();
-                                    }
-                                }
-                            } else {
-                                tracing::error!("Unsupported media import path: {:?}", path);
-                                app.dialog()
-                                    .message("Unsupported media file.")
-                                    .title("Import Error")
-                                    .kind(tauri_plugin_dialog::MessageDialogKind::Error)
-                                    .blocking_show();
-                            }
-                        }
-                    });
+                    open_picker_in(app, RecordingTargetMode::Area, PickerKind::Screenshot);
                 }
                 Ok(TrayItem::ViewAllRecordings) => {
                     let _ = RequestOpenSettings {
@@ -1318,26 +869,23 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                         crate::request_app_exit(app).await;
                     });
                 }
-                Ok(TrayItem::PreviousItem(path)) => {
-                    handle_previous_item_click(app, &path);
-                }
                 Ok(TrayItem::ModeStudio) => {
-                    handle_mode_selection(app, RecordingMode::Studio, &cache);
+                    handle_mode_selection(app, RecordingMode::Studio);
                 }
                 Ok(TrayItem::ModeInstant) => {
-                    handle_mode_selection(app, RecordingMode::Instant, &cache);
+                    handle_mode_selection(app, RecordingMode::Instant);
                 }
                 Ok(TrayItem::ModeScreenshot) => {
-                    handle_mode_selection(app, RecordingMode::Screenshot, &cache);
+                    handle_mode_selection(app, RecordingMode::Screenshot);
                 }
                 Ok(TrayItem::SelectCamera(device_id)) => {
-                    handle_camera_selection(app, &device_id, &cache);
+                    handle_camera_selection(app, &device_id);
                 }
                 Ok(TrayItem::SelectMicrophone(name)) => {
-                    handle_microphone_selection(app, &name, &cache);
+                    handle_microphone_selection(app, &name);
                 }
                 Ok(TrayItem::ToggleSystemAudio) => {
-                    handle_system_audio_toggle(app, &cache);
+                    handle_system_audio_toggle(app);
                 }
                 Ok(TrayItem::RequestPermissions) => {
                     let app = app.clone();
@@ -1365,56 +913,12 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         tracing::warn!("Failed to initialize Linux tray icon: {error}");
     }
 
-    {
-        let app_clone = app.clone();
-        let cache_clone = cache.clone();
-        std::thread::spawn(move || {
-            let screenshots_dir = screenshots_path(&app_clone);
-            let items_needing_thumbnails: Vec<PathBuf> = {
-                let cache_guard = cache_clone.lock().unwrap();
-                cache_guard
-                    .items
-                    .iter()
-                    .filter(|item| item.thumbnail.is_none())
-                    .map(|item| item.path.clone())
-                    .collect()
-            };
-
-            if items_needing_thumbnails.is_empty() {
-                return;
-            }
-
-            for path in items_needing_thumbnails {
-                if let Some(updated_item) = load_single_item(&path, &screenshots_dir, true) {
-                    let mut cache_guard = cache_clone.lock().unwrap();
-                    if let Some(existing) = cache_guard.items.iter_mut().find(|i| i.path == path) {
-                        existing.thumbnail = updated_item.thumbnail;
-                        existing.thumbnail_width = updated_item.thumbnail_width;
-                        existing.thumbnail_height = updated_item.thumbnail_height;
-                    }
-                }
-            }
-
-            let app_for_refresh = app_clone.clone();
-            let cache_for_refresh = cache_clone.clone();
-            let _ = app_clone.run_on_main_thread(move || {
-                if let Some(tray) = app_for_refresh.tray_by_id("tray") {
-                    let cache_guard = cache_for_refresh.lock().unwrap();
-                    if let Ok(menu) = build_tray_menu(&app_for_refresh, &cache_guard) {
-                        let _ = tray.set_menu(Some(menu));
-                    }
-                }
-            });
-        });
-    }
-
     RecordingStarted::listen_any(&app, {
         let app = app.clone();
         let is_recording = is_recording.clone();
-        let cache = cache.clone();
         move |_| {
             is_recording.store(true, Ordering::Relaxed);
-            refresh_tray_menu(&app, &cache);
+            refresh_tray_menu(&app);
 
             if cfg!(target_os = "windows") {
                 return;
@@ -1433,10 +937,9 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     RecordingStopped::listen_any(&app, {
         let app_handle = app.clone();
         let is_recording = is_recording.clone();
-        let cache = cache.clone();
         move |_| {
             is_recording.store(false, Ordering::Relaxed);
-            refresh_tray_menu(&app_handle, &cache);
+            refresh_tray_menu(&app_handle);
 
             if cfg!(target_os = "windows") {
                 return;
@@ -1453,37 +956,10 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         }
     });
 
-    NewStudioRecordingAdded::listen_any(&app, {
-        let app_handle = app.clone();
-        let cache_clone = cache.clone();
-        move |event| {
-            add_new_item_to_cache(&cache_clone, &app_handle, event.payload.path.clone());
-            refresh_tray_menu(&app_handle, &cache_clone);
-        }
-    });
-
-    NewScreenshotAdded::listen_any(&app, {
-        let app_handle = app.clone();
-        let cache_clone = cache.clone();
-        move |event| {
-            let path = if event.payload.path.extension().and_then(|s| s.to_str()) == Some("png") {
-                event.payload.path.parent().map(|p| p.to_path_buf())
-            } else {
-                Some(event.payload.path.clone())
-            };
-
-            if let Some(path) = path {
-                add_new_item_to_cache(&cache_clone, &app_handle, path);
-                refresh_tray_menu(&app_handle, &cache_clone);
-            }
-        }
-    });
-
     // `DevicesUpdated` carries no Deserialize impl, so the typed listener is out
     // of reach; the raw listener uses the same event name and payload shape.
     app.listen_any(<crate::DevicesUpdated as tauri_specta::Event>::NAME, {
         let app_handle = app.clone();
-        let cache = cache.clone();
         let devices = devices.clone();
         move |event| {
             let payload = match serde_json::from_str::<DevicesUpdatedPayload>(event.payload()) {
@@ -1510,21 +986,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 guard.microphones = payload.microphones;
             }
 
-            refresh_tray_menu(&app_handle, &cache);
-        }
-    });
-
-    crate::recordings_locations::RecordingsMigrationProgress::listen_any(&app, {
-        let app_handle = app.clone();
-        let cache_clone = cache.clone();
-        move |event| {
-            // Rebuild once when a storage-folder migration finishes: moved
-            // projects changed paths, so cached entries are stale.
-            if event.payload.done == event.payload.total {
-                let items = load_all_previous_items(&app_handle, false);
-                cache_clone.lock().unwrap().items = items;
-                refresh_tray_menu(&app_handle, &cache_clone);
-            }
+            refresh_tray_menu(&app_handle);
         }
     });
 

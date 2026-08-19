@@ -32,6 +32,7 @@ pub async fn start_file_drag(window: Window<Wry>, path: PathBuf) -> Result<bool,
         return Err(format!("File not found: {}", path.display()));
     }
 
+    let started = std::time::Instant::now();
     let app = window.app_handle().clone();
 
     if !is_allowed(&app, &path) {
@@ -44,6 +45,10 @@ pub async fn start_file_drag(window: Window<Wry>, path: PathBuf) -> Result<bool,
     // Checked as the real file, dragged as a link that carries the project's own name: dropping
     // three screenshots on the desktop must not produce three files called `original.png`.
     let path = crate::recording::shareable_file_path(&path);
+    tracing::debug!(
+        elapsed_ms = started.elapsed().as_millis(),
+        "Drag: file prepared"
+    );
 
     let (tx, rx) = tokio::sync::oneshot::channel();
     // The drop result arrives later, from the drag session's callback. It is a `Fn`, so the
@@ -52,6 +57,11 @@ pub async fn start_file_drag(window: Window<Wry>, path: PathBuf) -> Result<bool,
     let drop_tx = std::sync::Arc::new(std::sync::Mutex::new(Some(drop_tx)));
 
     app.run_on_main_thread(move || {
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis(),
+            "Drag: reached the main thread"
+        );
+
         #[cfg(target_os = "linux")]
         let drag_window = window.gtk_window().map_err(|e| e.to_string());
         #[cfg(not(target_os = "linux"))]
@@ -84,6 +94,10 @@ pub async fn start_file_drag(window: Window<Wry>, path: PathBuf) -> Result<bool,
             }
         }
 
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis(),
+            "Drag: session started"
+        );
         let _ = tx.send(result);
     })
     .map_err(|e| e.to_string())?;
@@ -91,5 +105,11 @@ pub async fn start_file_drag(window: Window<Wry>, path: PathBuf) -> Result<bool,
     rx.await.map_err(|e| e.to_string())??;
 
     // A dropped sender means the drag session went away without reporting; treat that as cancelled.
-    Ok(drop_rx.await.unwrap_or(false))
+    let dropped = drop_rx.await.unwrap_or(false);
+    tracing::debug!(
+        elapsed_ms = started.elapsed().as_millis(),
+        dropped,
+        "Drag: finished"
+    );
+    Ok(dropped)
 }
