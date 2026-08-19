@@ -2,13 +2,13 @@ import { createEventListener } from "@solid-primitives/event-listener";
 import { type as ostype } from "@tauri-apps/plugin-os";
 import {
 	batch,
-	createEffect,
 	createMemo,
 	createResource,
 	createSignal,
 	For,
 	Index,
 	Match,
+	onMount,
 	Show,
 	Switch,
 } from "solid-js";
@@ -132,8 +132,42 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 		migrateHotkeys(props.initialStore?.hotkeys ?? {}),
 	);
 
-	createEffect(() => {
-		hotkeysStore.set({ hotkeys: { ...hotkeys } as HotkeysStore["hotkeys"] });
+	// A shortcut must never be on disk without being registered with the system:
+	// saving used to happen on every keystroke while registering waited for a
+	// confirm click, so a shortcut looked set but did nothing until the next app
+	// start. Both now happen together, and only after the system accepted it.
+	const persist = () =>
+		hotkeysStore
+			.set({ hotkeys: { ...hotkeys } as HotkeysStore["hotkeys"] })
+			.catch((error) => console.error("Failed to save shortcuts:", error));
+
+	const [failures, setFailures] = createSignal<
+		Partial<Record<HotkeyAction, string>>
+	>({});
+
+	const apply = async (action: HotkeyAction, binding: Hotkey | null) => {
+		const previous = hotkeys[action];
+		try {
+			await commands.setHotkey(action, binding);
+			setFailures((prev) => {
+				const { [action]: _removed, ...rest } = prev;
+				return rest;
+			});
+			await persist();
+		} catch (error) {
+			setHotkeys(action, previous);
+			setFailures((prev) => ({
+				...prev,
+				[action]: `The system refused this shortcut: ${error}`,
+			}));
+		}
+	};
+
+	onMount(() => {
+		const stored = props.initialStore?.hotkeys ?? {};
+		const migrated = migrateHotkeys(stored);
+		if (Object.keys(migrated).length !== Object.keys(stored).length)
+			void persist();
 	});
 
 	const [listening, setListening] = createSignal<{
@@ -156,7 +190,11 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 		if (l) {
 			e.preventDefault();
 
-			setHotkeys(l.action, data);
+			batch(() => {
+				setHotkeys(l.action, data);
+				setListening();
+			});
+			void apply(l.action, data);
 		}
 	});
 
@@ -213,7 +251,11 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 										return (
 											<SettingItem
 												label={entry().label}
-												description={conflicts().get(action()) ?? entry().hint}
+												description={
+													failures()[action()] ??
+													conflicts().get(action()) ??
+													entry().hint
+												}
 											>
 												<Switch>
 													<Match when={listening()?.action === action()}>
@@ -237,12 +279,7 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 																		type="button"
 																		onClick={(e) => {
 																			e.stopPropagation();
-
 																			setListening();
-																			commands.setHotkey(
-																				action(),
-																				hotkeys[action()] ?? null,
-																			);
 																		}}
 																	>
 																		<IconCapCircleCheck class="transition-colors text-gray-12 hover:text-gray-10 size-5" />
@@ -256,8 +293,8 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 																			setListening();
 																			// biome-ignore lint/style/noNonNullAssertion: store
 																			setHotkeys(action(), undefined!);
-																			commands.setHotkey(action(), null);
 																		});
+																		void apply(action(), null);
 																	}}
 																>
 																	<IconCapCircleX class="text-red-500 transition-colors hover:text-red-700 size-5" />

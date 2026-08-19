@@ -21,6 +21,31 @@ gestalterisch nochmal ansehen.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
 
+## 2026-08-19 (Kürzel wurden gespeichert, aber nicht registriert)
+
+„Area screenshot to text" tat beim Drücken des Kürzels nichts. Der Eintrag
+fehlte im gespeicherten Zustand, obwohl er vormittags noch da war.
+
+Ursache war die Kürzel-Seite. Sie schrieb bei **jedem Tastendruck** in den
+Speicher, registrierte das Kürzel beim System aber erst beim Klick auf das
+Häkchen. Wer die Tasten drückte und das Fenster schloss, hatte ein Kürzel, das
+in der Oberfläche gesetzt aussah, auf der Platte stand und trotzdem nichts tat,
+bis die App neu startete. Beim Klick auf das rote X wurde der Wert auf
+`undefined` gesetzt, was beim Serialisieren wegfällt, der Eintrag verschwand
+also ganz.
+
+- **Speichern und Registrieren gehören jetzt zusammen** und passieren erst,
+  nachdem das System das Kürzel angenommen hat.
+- **Ein gedrücktes Kürzel gilt sofort**, ohne Bestätigungsklick. Das Häkchen
+  beendet nur noch den Bearbeitungsmodus, es registriert nicht erneut. Vorher
+  scheiterte genau das, weil dasselbe Kürzel kein zweites Mal registrierbar ist.
+- **Fehlgeschlagene Registrierung wird sichtbar.** `set_hotkey` gibt den Fehler
+  zurück statt ihn mit `.ok()` zu verwerfen, die Zeile stellt den vorherigen
+  Zustand wieder her und zeigt „The system refused this shortcut: ...".
+- Zwei Aktionen dürfen sich weiter ein Kürzel teilen: eine bereits bestehende
+  Registrierung zählt als Erfolg statt als Fehler.
+- Beim Start wird jede Registrierung geloggt, fehlgeschlagene als Warnung.
+
 ## 2026-08-19 (DMG-Installer trug noch Cap-Namen)
 
 Das Installationsfenster sagte weiter „Drag and Drop **Cap** to the Applications

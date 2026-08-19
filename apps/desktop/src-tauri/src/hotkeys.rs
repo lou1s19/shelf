@@ -325,6 +325,7 @@ pub fn init(app: &AppHandle) {
 
                 for (action, hotkey) in &store.hotkeys {
                     if &Shortcut::from(*hotkey) == shortcut {
+                        tracing::debug!(?action, %shortcut, "Hotkey fired");
                         tokio::spawn(handle_hotkey(app.clone(), *action));
                     }
                 }
@@ -343,8 +344,16 @@ pub fn init(app: &AppHandle) {
     };
 
     let global_shortcut = app.global_shortcut();
-    for hotkey in store.hotkeys.values() {
-        global_shortcut.register(Shortcut::from(*hotkey)).ok();
+    for (action, hotkey) in &store.hotkeys {
+        let shortcut = Shortcut::from(*hotkey);
+        // Registration failures used to be discarded, which made a shortcut the
+        // system refuses look like a broken feature.
+        match global_shortcut.register(shortcut) {
+            Ok(()) => tracing::debug!(?action, %shortcut, "Registered hotkey"),
+            Err(error) => {
+                tracing::warn!(?action, %shortcut, %error, "Could not register hotkey")
+            }
+        }
     }
 
     app.manage(Mutex::new(store));
@@ -452,7 +461,11 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
 #[tauri::command(async)]
 #[specta::specta]
 #[instrument(skip(app))]
-pub fn set_hotkey(app: AppHandle, action: HotkeyAction, hotkey: Option<Hotkey>) -> Result<(), ()> {
+pub fn set_hotkey(
+    app: AppHandle,
+    action: HotkeyAction,
+    hotkey: Option<Hotkey>,
+) -> Result<(), String> {
     let global_shortcut = app.global_shortcut();
     let state = app.state::<HotkeysState>();
     let mut store = state.lock().unwrap();
@@ -472,7 +485,22 @@ pub fn set_hotkey(app: AppHandle, action: HotkeyAction, hotkey: Option<Hotkey>) 
     }
 
     if let Some(hotkey) = hotkey {
-        global_shortcut.register(Shortcut::from(hotkey)).ok();
+        let shortcut = Shortcut::from(hotkey);
+        // Two actions may share one shortcut; the handler fans out to all of
+        // them. Registering the same one twice fails, so an existing
+        // registration counts as success.
+        if !global_shortcut.is_registered(shortcut)
+            && let Err(error) = global_shortcut.register(shortcut)
+        {
+            // The caller reverts on this. Swallowing it left a shortcut that
+            // looked set everywhere but never reached the app.
+            store.hotkeys.remove(&action);
+            if let Some(prev) = prev {
+                store.hotkeys.insert(action, prev);
+                global_shortcut.register(Shortcut::from(prev)).ok();
+            }
+            return Err(format!("{error}"));
+        }
     }
 
     Ok(())
