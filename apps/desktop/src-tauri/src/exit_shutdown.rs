@@ -85,6 +85,9 @@ pub(crate) enum ExitRequestDecision {
     AlreadyExiting,
     ExportActive,
     AllowRuntimeExit,
+    /// Nothing asked the app to quit, the last window just closed. Shelf lives
+    /// in the menu bar, so it stays running.
+    StayResident,
 }
 
 pub(crate) fn handle_exit_requested<FPrevent>(
@@ -104,6 +107,13 @@ where
     } else if is_exiting {
         prevent_exit();
         ExitRequestDecision::AlreadyExiting
+    } else if !runtime_exit_requested {
+        // Closing the last window is not a request to quit. Quitting goes
+        // through the tray item or the macOS terminate handler, both of which
+        // set the exit state first. Without this the app died as soon as the
+        // settings window was closed.
+        prevent_exit();
+        ExitRequestDecision::StayResident
     } else {
         prevent_exit();
         ExitRequestDecision::StartCleanup

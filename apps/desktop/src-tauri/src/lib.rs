@@ -5433,6 +5433,9 @@ fn handle_run_event(_handle: &AppHandle, event: tauri::RunEvent) {
                         request_app_exit(handle).await;
                     });
                 }
+                ExitRequestDecision::StayResident => {
+                    info!("Last window closed; Shelf stays in the menu bar");
+                }
                 ExitRequestDecision::AlreadyExiting => {}
                 ExitRequestDecision::ExportActive => {
                     warn!("Preventing app exit request during active export");
