@@ -1103,16 +1103,19 @@ pub enum RecordingEvent {
     Recovered,
 }
 
-/// Every abort path out of `start_recording` must be observable: in the log, and as an
-/// event the main window surfaces to the user. The picker overlay that invoked the
-/// command is often already closed (or being torn down) when the error comes back, so
-/// an error returned to the caller alone can vanish without a trace.
+/// Every abort path out of `start_recording` must be observable. The picker
+/// overlay that invoked the command is often already closed (or being torn
+/// down) when the error comes back, so an error returned to the caller alone
+/// can vanish without a trace. The event is still emitted for any window that
+/// happens to be open; the system notification is what the user actually sees,
+/// because Shelf has no main window to toast into.
 fn notify_recording_start_failed(app: &AppHandle, error: &str) {
     error!(%error, "Recording failed to start");
     let _ = RecordingEvent::StartFailed {
         error: error.to_string(),
     }
     .emit(app);
+    crate::notifications::send_failure_notification(app, "Recording Failed to Start", error);
 }
 
 #[derive(Serialize, Type)]
@@ -2256,12 +2259,15 @@ async fn handle_spawn_failure(
     }
     .emit(app);
 
-    // DeviceNotFound errors are surfaced to the user via the frontend toast; skip the
-    // blocking native dialog so the overlay stays responsive and the error isn't repeated.
+    // A missing device gets a notification instead of the blocking native dialog,
+    // so the overlay stays responsive. It used to be a toast in the main window,
+    // which no longer exists.
     let is_device_not_found =
         message.contains("no longer available") || message.contains("DeviceNotFound");
 
-    if !is_device_not_found {
+    if is_device_not_found {
+        crate::notifications::send_failure_notification(app, "Device Unavailable", &message);
+    } else {
         let mut dialog = MessageDialogBuilder::new(
             app.dialog().clone(),
             "An error occurred".to_string(),
@@ -3322,11 +3328,13 @@ async fn handle_recording_finish(
                 && let cap_recording::RecordingHealth::Damaged { ref reason } = recording.health
             {
                 error!(reason, "Instant recording output is damaged");
+                let message = format!("Recording output is damaged: {reason}");
                 RecordingEvent::Failed {
-                    error: format!("Recording output is damaged: {reason}"),
+                    error: message.clone(),
                 }
                 .emit(app)
                 .ok();
+                crate::notifications::send_failure_notification(app, "Recording Damaged", &message);
                 return Ok(false);
             }
 

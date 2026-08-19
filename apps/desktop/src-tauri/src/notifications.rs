@@ -66,6 +66,28 @@ impl NotificationType {
     }
 }
 
+/// Failures that the main window used to show as a toast. Without that window
+/// a failed recording start would be visible only in the log, so it goes to the
+/// system notification centre instead, with the real reason attached.
+pub fn send_failure_notification(app: &tauri::AppHandle, title: &str, body: &str) {
+    let enable_notifications = GeneralSettingsStore::get(app)
+        .map(|settings| settings.is_some_and(|s| s.enable_notifications))
+        .unwrap_or(false);
+
+    if !enable_notifications {
+        return;
+    }
+
+    app.notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .ok();
+
+    AppSounds::Notification.play();
+}
+
 pub fn send_notification(app: &tauri::AppHandle, notification_type: NotificationType) {
     let enable_notifications = GeneralSettingsStore::get(app)
         .map(|settings| settings.is_some_and(|s| s.enable_notifications))

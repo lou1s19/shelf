@@ -54,43 +54,55 @@ export default function DevicesSettings() {
 	const microphoneSettingFor = (mic: MicrophoneWithDetails) =>
 		deviceSettings()?.microphoneDeviceSettings?.[mic.name];
 
-	const saveCameraSettings = async (
+	// Saving is read/modify/write on one shared blob. Two quick clicks would
+	// otherwise interleave and the slower one would write back the older value,
+	// so every write waits for the one before it.
+	let writeQueue: Promise<unknown> = Promise.resolve();
+	const queueWrite = <T,>(write: () => Promise<T>): Promise<T> => {
+		const next = writeQueue.then(write, write);
+		writeQueue = next.catch(() => undefined);
+		return next;
+	};
+
+	const saveCameraSettings = (
 		camera: CameraWithDetails,
 		settings: CameraDeviceSettings,
-	) => {
-		const current = (await deviceSettingsStore.get()) ?? {};
-		const next = { ...(current.cameraDeviceSettings ?? {}) };
-		for (const key of cameraSettingsKeys(camera)) {
-			next[key] = settings;
-		}
-		await deviceSettingsStore.set({ cameraDeviceSettings: next });
+	) =>
+		queueWrite(async () => {
+			const current = (await deviceSettingsStore.get()) ?? {};
+			const next = { ...(current.cameraDeviceSettings ?? {}) };
+			for (const key of cameraSettingsKeys(camera)) {
+				next[key] = settings;
+			}
+			await deviceSettingsStore.set({ cameraDeviceSettings: next });
 
-		// A running camera preview keeps the old format until it is re-applied.
-		const cameraWindowOpen = await commands
-			.isCameraWindowOpen()
-			.catch(() => false);
-		if (!cameraWindowOpen) return;
+			// A running camera preview keeps the old format until it is re-applied.
+			const cameraWindowOpen = await commands
+				.isCameraWindowOpen()
+				.catch(() => false);
+			if (!cameraWindowOpen) return;
 
-		const id = camera.model_id
-			? { ModelID: camera.model_id }
-			: { DeviceID: camera.device_id };
-		await commands.setCameraInput(id, true).catch((error) => {
-			console.error("Failed to re-apply camera settings:", error);
+			const id = camera.model_id
+				? { ModelID: camera.model_id }
+				: { DeviceID: camera.device_id };
+			await commands.setCameraInput(id, true).catch((error) => {
+				console.error("Failed to re-apply camera settings:", error);
+			});
 		});
-	};
 
-	const saveMicrophoneSettings = async (
+	const saveMicrophoneSettings = (
 		mic: MicrophoneWithDetails,
 		settings: MicrophoneDeviceSettings,
-	) => {
-		const current = (await deviceSettingsStore.get()) ?? {};
-		await deviceSettingsStore.set({
-			microphoneDeviceSettings: {
-				...(current.microphoneDeviceSettings ?? {}),
-				[mic.name]: settings,
-			},
+	) =>
+		queueWrite(async () => {
+			const current = (await deviceSettingsStore.get()) ?? {};
+			await deviceSettingsStore.set({
+				microphoneDeviceSettings: {
+					...(current.microphoneDeviceSettings ?? {}),
+					[mic.name]: settings,
+				},
+			});
 		});
-	};
 
 	return (
 		<SettingsPageContent class="space-y-4">
