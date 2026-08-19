@@ -37,7 +37,13 @@ export default function TextPin() {
 		if (timer !== undefined) clearTimeout(timer);
 	});
 
+	// The event repeats a few times so a freshly created panel cannot miss it.
+	// Only the first of each id counts, otherwise a late repeat of an older
+	// capture would overwrite the text that replaced it.
+	const seen = new Set<string>();
 	createTauriEventListener(events.textPinAdded, (payload) => {
+		if (seen.has(payload.id)) return;
+		seen.add(payload.id);
 		setText(payload.text);
 		if (!hovered) schedule();
 	});

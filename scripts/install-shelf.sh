@@ -54,9 +54,9 @@ fi
 
 # A bundle older than the newest source file means the build did not actually
 # produce anything new, which is how a stale app got installed unnoticed.
-NEWEST_SOURCE="$(find "$REPO/apps" "$REPO/crates" -type f \
+NEWEST_SOURCE="$(find "$REPO/apps" "$REPO/crates" "$REPO/packages" -type f \
 	\( -name "*.rs" -o -name "*.ts" -o -name "*.tsx" -o -name "*.json" \) \
-	-not -path "*/node_modules/*" -newer "$SOURCE/Contents/MacOS/$(basename "$APP_NAME" .app)" \
+	-not -path "*/node_modules/*" -not -path "*/.output/*" -not -path "*/dist/*" -newer "$SOURCE/Contents/MacOS/$(basename "$APP_NAME" .app)" \
 	-print -quit 2>/dev/null || true)"
 if [ -n "$NEWEST_SOURCE" ]; then
 	echo "==> bundle is older than $NEWEST_SOURCE, refusing to install a stale build" >&2

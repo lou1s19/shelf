@@ -93,6 +93,7 @@ const DEFAULT_EXCLUDED_WINDOW_TITLES: &[&str] = &[
     "Shelf Mode Selection",
     "Shelf Recordings Overlay",
     "Shelf Teleprompter",
+    "Shelf Copied Text",
 ];
 
 pub fn default_excluded_windows() -> Vec<WindowExclusion> {

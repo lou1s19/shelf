@@ -137,7 +137,9 @@ fn hide_recording_windows(app: &AppHandle, restore_target_select_overlays: bool)
         if let Ok(id) = CapWindowId::from_str(&label)
             && matches!(
                 id,
-                CapWindowId::TargetSelectOverlay { .. } | CapWindowId::Camera
+                CapWindowId::TargetSelectOverlay { .. }
+                    | CapWindowId::Camera
+                    | CapWindowId::TextPin
             )
         {
             if matches!(id, CapWindowId::TargetSelectOverlay { .. }) {
@@ -1314,11 +1316,16 @@ impl ShowCapWindow {
                     return Ok(window);
                 }
 
+                // Recognised text can be a password. The panel must never end up
+                // in the next capture.
+                let should_protect = should_protect_window(app, &CapWindowId::TextPin.title());
+
                 #[cfg(target_os = "macos")]
                 let panel_activation_guard = permissions::prepare_macos_panel_window(app);
 
                 let window = self
                     .window_builder(app, "/text-pin")
+                    .content_protected(should_protect)
                     .resizable(false)
                     .maximized(false)
                     .maximizable(false)

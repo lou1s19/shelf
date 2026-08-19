@@ -394,10 +394,19 @@ export default function () {
 										},
 									});
 
-								// The stack grows from the newest entry, so the first card
-								// rendered is the one Cmd+C means without a pointer.
+								// allMedia keeps recordings and screenshots in two blocks, so
+								// its first entry is not the newest one. Cmd+C without a
+								// pointer means whatever was captured last.
 								createEffect(() => {
-									if (allMedia()[0]?.path === media.path)
+									const newest = allMedia().reduce<MediaEntry | undefined>(
+										(latest, entry) =>
+											!latest ||
+											(entry.createdAt ?? 0) > (latest.createdAt ?? 0)
+												? entry
+												: latest,
+										undefined,
+									);
+									if (newest?.path === media.path)
 										setNewestCopy(() => copyThisCard);
 								});
 								// Both signals may still point at this card when it is
@@ -661,7 +670,13 @@ export default function () {
 															variant="white"
 															size="sm"
 															onClick={() =>
-																save.mutate(undefined, { onSuccess: dismiss })
+																save.mutate(undefined, {
+																	// The mutation resolves with false when the save
+																	// dialog was cancelled; the card stays then.
+																	onSuccess: (saved) => {
+																		if (saved) dismiss();
+																	},
+																})
 															}
 														>
 															Export
