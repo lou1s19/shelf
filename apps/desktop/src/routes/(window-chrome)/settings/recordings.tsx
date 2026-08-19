@@ -823,18 +823,6 @@ function RecordingSettingsInner(props: {
 						onChange={handleRecordingStartSafetyChange}
 					/>
 					<SelectSettingItem
-						label="Main window when recording starts"
-						description="What happens to the main window once a recording begins."
-						value={settings.mainWindowRecordingStartBehaviour ?? "close"}
-						onChange={(value) =>
-							handleChange("mainWindowRecordingStartBehaviour", value)
-						}
-						options={[
-							{ text: "Close", value: "close" },
-							{ text: "Minimise", value: "minimise" },
-						]}
-					/>
-					<SelectSettingItem
 						label="After a Studio recording"
 						description="What happens once you stop a Studio recording."
 						value={settings.postStudioRecordingBehaviour ?? "openEditor"}
@@ -844,19 +832,6 @@ function RecordingSettingsInner(props: {
 						options={[
 							{ text: "Open editor", value: "openEditor" },
 							{ text: "Show in overlay", value: "showOverlay" },
-						]}
-					/>
-					<SelectSettingItem
-						label="After deleting a recording"
-						description="Whether the recording window should reopen."
-						value={settings.postDeletionBehaviour ?? "doNothing"}
-						onChange={(value) => handleChange("postDeletionBehaviour", value)}
-						options={[
-							{ text: "Do nothing", value: "doNothing" },
-							{
-								text: "Reopen recording window",
-								value: "reopenRecordingWindow",
-							},
 						]}
 					/>
 					<ToggleSettingItem

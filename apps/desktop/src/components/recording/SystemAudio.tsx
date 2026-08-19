@@ -2,12 +2,11 @@ import { createQuery } from "@tanstack/solid-query";
 import { cx } from "cva";
 import type { Component, ComponentProps, JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
-
+import { useRecordingOptions } from "~/routes/(window-chrome)/OptionsContext";
 import {
 	createCurrentRecordingQuery,
 	isSystemAudioSupported,
 } from "~/utils/queries";
-import { useRecordingOptions } from "../OptionsContext";
 import {
 	DEVICE_ROW_CLASS,
 	DEVICE_ROW_ICON_CLASS,

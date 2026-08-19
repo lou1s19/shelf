@@ -66,6 +66,42 @@ impl NotificationType {
     }
 }
 
+/// Failures that the main window used to show as a toast. Without that window
+/// a failed recording start would be visible only in the log, so it goes to the
+/// system notification centre instead, with the real reason attached.
+///
+/// Deliberately ignores the "system notifications" setting: that switch is for
+/// the routine "saved / copied" messages. A recording that refused to start has
+/// to reach the user, otherwise pressing the tray item appears to do nothing.
+/// If the notification itself cannot be delivered (permission denied at OS
+/// level), a native dialog takes over as the last resort.
+pub fn send_failure_notification(app: &tauri::AppHandle, title: &str, body: &str) {
+    let shown = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show()
+        .is_ok();
+
+    if shown {
+        AppSounds::Notification.play();
+        return;
+    }
+
+    tracing::warn!(
+        title,
+        "Notification could not be delivered; falling back to a dialog"
+    );
+
+    use tauri_plugin_dialog::DialogExt;
+    app.dialog()
+        .message(body.to_string())
+        .title(title.to_string())
+        .kind(tauri_plugin_dialog::MessageDialogKind::Error)
+        .show(|_| {});
+}
+
 pub fn send_notification(app: &tauri::AppHandle, notification_type: NotificationType) {
     let enable_notifications = GeneralSettingsStore::get(app)
         .map(|settings| settings.is_some_and(|s| s.enable_notifications))

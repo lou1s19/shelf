@@ -65,8 +65,7 @@ use crate::{
     audio::AppSounds,
     create_screenshot, create_screenshot_source_from_segments,
     general_settings::{
-        GeneralSettingsStore, PostDeletionBehaviour, PostScreenshotBehaviour,
-        PostStudioRecordingBehaviour,
+        GeneralSettingsStore, PostScreenshotBehaviour, PostStudioRecordingBehaviour,
     },
     presets::PresetsStore,
     thumbnails::*,
@@ -1104,16 +1103,19 @@ pub enum RecordingEvent {
     Recovered,
 }
 
-/// Every abort path out of `start_recording` must be observable: in the log, and as an
-/// event the main window surfaces to the user. The picker overlay that invoked the
-/// command is often already closed (or being torn down) when the error comes back, so
-/// an error returned to the caller alone can vanish without a trace.
+/// Every abort path out of `start_recording` must be observable. The picker
+/// overlay that invoked the command is often already closed (or being torn
+/// down) when the error comes back, so an error returned to the caller alone
+/// can vanish without a trace. The event is still emitted for any window that
+/// happens to be open; the system notification is what the user actually sees,
+/// because Shelf has no main window to toast into.
 fn notify_recording_start_failed(app: &AppHandle, error: &str) {
     error!(%error, "Recording failed to start");
     let _ = RecordingEvent::StartFailed {
         error: error.to_string(),
     }
     .emit(app);
+    crate::notifications::send_failure_notification(app, "Recording Failed to Start", error);
 }
 
 #[derive(Serialize, Type)]
@@ -1655,13 +1657,6 @@ pub async fn start_recording(
     }
     .show(&app)
     .await;
-
-    if let Some(window) = CapWindowId::Main.get(&app) {
-        let _ = general_settings
-            .map(|v| v.main_window_recording_start_behaviour)
-            .unwrap_or_default()
-            .perform(&window);
-    }
 
     crate::windows::apply_content_protection(&app, true);
 
@@ -2264,12 +2259,15 @@ async fn handle_spawn_failure(
     }
     .emit(app);
 
-    // DeviceNotFound errors are surfaced to the user via the frontend toast; skip the
-    // blocking native dialog so the overlay stays responsive and the error isn't repeated.
+    // A missing device gets a notification instead of the blocking native dialog,
+    // so the overlay stays responsive. It used to be a toast in the main window,
+    // which no longer exists.
     let is_device_not_found =
         message.contains("no longer available") || message.contains("DeviceNotFound");
 
-    if !is_device_not_found {
+    if is_device_not_found {
+        crate::notifications::send_failure_notification(app, "Device Unavailable", &message);
+    } else {
         let mut dialog = MessageDialogBuilder::new(
             app.dialog().clone(),
             "An error occurred".to_string(),
@@ -2495,22 +2493,6 @@ pub async fn delete_recording(app: AppHandle, state: MutableState<'_, App>) -> R
         }
 
         let delete_result = discard_recording(recording).await;
-
-        let settings = GeneralSettingsStore::get(&app)
-            .ok()
-            .flatten()
-            .unwrap_or_default();
-
-        match settings.post_deletion_behaviour {
-            PostDeletionBehaviour::DoNothing => {}
-            PostDeletionBehaviour::ReopenRecordingWindow => {
-                let _ = ShowCapWindow::Main {
-                    init_target_mode: None,
-                }
-                .show(&app)
-                .await;
-            }
-        }
 
         delete_result?;
     }
@@ -3107,24 +3089,11 @@ async fn handle_recording_end(
     let _ = app.mic_feed.ask(microphone::RemoveInput).await;
     let _ = app.camera_feed.ask(camera::RemoveInput).await;
 
-    let main_window = CapWindowId::Main.get(&handle);
-
-    // When the finish path handed the foreground to an editor window, leave
-    // the main window alone: un-minimizing it here (Windows `Close` behaviour
-    // minimizes; macOS `Minimise` miniaturizes) would restore it on top of the
-    // editor that just opened.
-    let editor_took_foreground = matches!(&res, Some(Ok(true)));
-
-    if let Some(window) = main_window {
-        if !editor_took_foreground {
-            window.unminimize().ok();
-        }
-        if let Err(err) = app.ensure_selected_mic_ready().await {
-            warn!("Failed to restore microphone preview after recording: {err}");
-        }
-    } else {
-        app.selected_mic_label = None;
-        app.selected_camera_id = None;
+    // The camera and microphone choice survives the recording. It is set from
+    // the tray menu and has to stay put, otherwise every recording would reset
+    // it to "No Camera" / "No Microphone".
+    if let Err(err) = app.ensure_selected_mic_ready().await {
+        warn!("Failed to restore microphone preview after recording: {err}");
     }
 
     // Fallback for in-editor recordings that did NOT reach
@@ -3359,11 +3328,13 @@ async fn handle_recording_finish(
                 && let cap_recording::RecordingHealth::Damaged { ref reason } = recording.health
             {
                 error!(reason, "Instant recording output is damaged");
+                let message = format!("Recording output is damaged: {reason}");
                 RecordingEvent::Failed {
-                    error: format!("Recording output is damaged: {reason}"),
+                    error: message.clone(),
                 }
                 .emit(app)
                 .ok();
+                crate::notifications::send_failure_notification(app, "Recording Damaged", &message);
                 return Ok(false);
             }
 

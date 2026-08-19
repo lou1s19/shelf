@@ -28,8 +28,8 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::panel_manager::{PanelManager, PanelState, PanelWindowType, is_window_handle_valid};
 
 use crate::{
-    App, ArcLock, CameraWindowCloseGate, CameraWindowPositionGuard, MainWindowReadyState,
-    NewNotification, RequestSetTargetMode, camera_preview_error_message,
+    App, ArcLock, CameraWindowCloseGate, CameraWindowPositionGuard, NewNotification,
+    RequestSetTargetMode, camera_preview_error_message,
     editor_window::PendingEditorInstances,
     emit_camera_preview_clear, emit_camera_preview_error, fake_window,
     general_settings::{self, AppTheme, GeneralSettingsStore},
@@ -130,21 +130,6 @@ pub fn show_overlay(window: &WebviewWindow) {
     let _ = window.show();
 }
 
-fn emit_app_event<E>(app: &AppHandle, event: E)
-where
-    E: Event + serde::Serialize + Clone,
-{
-    let event_name = std::any::type_name::<E>();
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| event.emit(app))) {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => warn!(event = event_name, %error, "Failed to emit app event"),
-        Err(panic) => {
-            let message = crate::panic_payload_message(&panic);
-            error!(event = event_name, panic = %message, "Suppressed panic while emitting app event");
-        }
-    }
-}
-
 fn hide_recording_windows(app: &AppHandle, restore_target_select_overlays: bool) {
     let focus_manager = app.try_state::<WindowFocusManager>();
 
@@ -152,7 +137,7 @@ fn hide_recording_windows(app: &AppHandle, restore_target_select_overlays: bool)
         if let Ok(id) = CapWindowId::from_str(&label)
             && matches!(
                 id,
-                CapWindowId::TargetSelectOverlay { .. } | CapWindowId::Main | CapWindowId::Camera
+                CapWindowId::TargetSelectOverlay { .. } | CapWindowId::Camera
             )
         {
             if matches!(id, CapWindowId::TargetSelectOverlay { .. }) {
@@ -355,171 +340,6 @@ pub(crate) async fn ensure_camera_input_active(app_state: &mut App) {
     }
 }
 
-pub(crate) async fn restore_main_window_inputs(app: &AppHandle) {
-    let Some(state) = app.try_state::<ArcLock<App>>() else {
-        warn!("App state unavailable while restoring main window inputs");
-        return;
-    };
-
-    let should_restore = state
-        .try_read()
-        .map(|state| !state.is_recording_active_or_pending())
-        .unwrap_or(false);
-
-    if !should_restore {
-        return;
-    }
-
-    let settings = crate::recording_settings::RecordingSettingsStore::get(app)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-    let stored_camera_id = settings.camera_id.clone();
-
-    if let Err(err) = crate::set_mic_input(state.clone(), settings.mic_name).await {
-        warn!("Failed to restore microphone input for main window: {err}");
-    }
-
-    let Some(operation_lock) = app.try_state::<crate::CameraWindowOperationLock>() else {
-        warn!("CameraWindowOperationLock unavailable while restoring main window inputs");
-        return;
-    };
-    let operation_guard = operation_lock.lock().await;
-
-    let camera_to_restore = state
-        .try_read()
-        .map(|s| {
-            if !s.camera_cleanup_done && !s.camera_in_use {
-                s.selected_camera_id
-                    .clone()
-                    .or_else(|| stored_camera_id.clone())
-            } else {
-                None
-            }
-        })
-        .unwrap_or(None)
-        // A remembered camera that isn't connected must not run the init/retry
-        // loop below: it would flash the preview window and toast an error on
-        // every main-window reveal while the device is away.
-        .filter(crate::is_camera_available);
-
-    if let Some(camera_id) = camera_to_restore {
-        emit_camera_preview_clear(app);
-        let settings =
-            crate::recording_settings::RecordingSettingsStore::camera_settings_for(app, &camera_id);
-
-        let (camera_feed, camera_ws_sender, native_sender) = {
-            let app_state = &mut *state.write().await;
-            app_state.selected_camera_id = Some(camera_id.clone());
-            app_state.camera_in_use = true;
-            app_state.camera_cleanup_done = false;
-            #[allow(deprecated)]
-            (
-                app_state.camera_feed.clone(),
-                app_state.camera_ws_sender.clone(),
-                app_state.camera_preview.sender(),
-            )
-        };
-
-        if let Some(sender) = native_sender {
-            #[allow(deprecated)]
-            let _ = camera_feed
-                .ask(feeds::camera::RemoveSender(camera_ws_sender))
-                .await;
-            if let Err(err) = sender.attach(&camera_feed).await {
-                warn!(error = %err, "Failed to add native preview camera sender");
-            }
-        } else {
-            #[allow(deprecated)]
-            let _ = camera_feed
-                .ask(feeds::camera::AddSender(camera_ws_sender))
-                .await;
-        }
-
-        let mut showed_camera_window = false;
-        let mut attempts = 0;
-        let init_result: Result<(), String> = loop {
-            attempts += 1;
-            let request = camera_feed
-                .ask(feeds::camera::SetInput {
-                    id: camera_id.clone(),
-                    settings,
-                })
-                .await
-                .map_err(|e| e.to_string());
-
-            if !showed_camera_window {
-                showed_camera_window = true;
-                crate::show_camera_window_unlocked(app);
-            }
-
-            match request {
-                Ok(future) => match future.await {
-                    Ok(_) => {
-                        emit_camera_preview_clear(app);
-                        break Ok(());
-                    }
-                    Err(e) => {
-                        if attempts == 1 {
-                            emit_camera_preview_error(
-                                app,
-                                camera_preview_error_message(&e.to_string()),
-                            );
-                        }
-                        if attempts >= 3 {
-                            break Err(format!(
-                                "Failed to restore camera after {attempts} attempts: {e}"
-                            ));
-                        }
-                        warn!("Camera restore attempt {attempts} failed: {e}. Retrying...");
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                    }
-                },
-                Err(e) => {
-                    if attempts >= 3 {
-                        break Err(e);
-                    }
-                    warn!("Camera restore attempt {attempts} failed: {e}. Retrying...");
-                    tokio::time::sleep(Duration::from_millis(500)).await;
-                }
-            }
-        };
-
-        drop(operation_guard);
-
-        match init_result {
-            Ok(()) => crate::restore_camera_window(app),
-            Err(error) => {
-                let message = camera_preview_error_message(&error);
-                warn!("Failed to restore camera input for main window: {error}");
-                let _ = camera_feed.ask(feeds::camera::RemoveInput).await;
-                let emit_input_lost = {
-                    let app_state = &mut *state.write().await;
-                    app_state.selected_camera_id = None;
-                    app_state.camera_in_use = false;
-                    app_state
-                        .disconnected_inputs
-                        .insert(RecordingInputKind::Camera)
-                };
-                crate::show_camera_window_unlocked(app);
-                if emit_input_lost {
-                    let _ = RecordingEvent::InputLost {
-                        input: RecordingInputKind::Camera,
-                    }
-                    .emit(app);
-                }
-                emit_camera_preview_error(app, message.clone());
-                let _ = NewNotification {
-                    title: "Camera unavailable".to_string(),
-                    body: message,
-                    is_error: true,
-                }
-                .emit(app);
-            }
-        }
-    }
-}
-
 pub(crate) async fn cleanup_camera_window(
     app: &AppHandle,
     window: Option<&WebviewWindow>,
@@ -671,65 +491,6 @@ impl CursorMonitorInfo {
         let pos_x = self.x + (self.width - window_width) / 2.0;
         let pos_y = self.y + self.height - window_height - offset_y;
         (pos_x, pos_y)
-    }
-
-    fn from_window(window: &tauri::WebviewWindow) -> Self {
-        let Ok(window_pos) = window.outer_position() else {
-            return Self::get();
-        };
-
-        // outer_position is physical. On Windows, resolve the display in
-        // physical space (per-monitor logical rects overlap in mixed-DPI
-        // layouts). On macOS, convert to logical points, a true global space.
-        // On Linux scap reports logical bounds in unscaled physical units, so
-        // the raw position compares directly.
-        #[cfg(windows)]
-        {
-            let (pos_x, pos_y) = (window_pos.x as f64, window_pos.y as f64);
-            for display in Display::list() {
-                if let Some(bounds) = display.raw_handle().physical_bounds() {
-                    let (x, y, width, height) = (
-                        bounds.position().x(),
-                        bounds.position().y(),
-                        bounds.size().width(),
-                        bounds.size().height(),
-                    );
-
-                    if pos_x >= x && pos_x < x + width && pos_y >= y && pos_y < y + height {
-                        return Self::from_display(&display);
-                    }
-                }
-            }
-
-            Self::get()
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            let scale = window.scale_factor().unwrap_or(1.0);
-            let pos = window_pos.to_logical::<f64>(scale);
-
-            for display in Display::list() {
-                if display_contains_logical(&display, pos.x, pos.y) {
-                    return Self::from_display(&display);
-                }
-            }
-
-            Self::get()
-        }
-
-        #[cfg(target_os = "linux")]
-        {
-            let (pos_x, pos_y) = (window_pos.x as f64, window_pos.y as f64);
-
-            for display in Display::list() {
-                if display_contains_logical(&display, pos_x, pos_y) {
-                    return Self::from_display(&display);
-                }
-            }
-
-            Self::get()
-        }
     }
 }
 
@@ -933,7 +694,6 @@ fn ensure_settings_window_bounds(window: &WebviewWindow) {
 
 #[derive(Clone, Deserialize, Type)]
 pub enum CapWindowId {
-    Main,
     Settings,
     Editor { id: u32 },
     RecordingsOverlay,
@@ -954,7 +714,6 @@ impl FromStr for CapWindowId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
-            "main" => Self::Main,
             "settings" => Self::Settings,
             s if is_camera_window_label(s) => Self::Camera,
             "capture-area" => Self::CaptureArea,
@@ -997,7 +756,6 @@ impl FromStr for CapWindowId {
 impl std::fmt::Display for CapWindowId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Main => write!(f, "main"),
             Self::Settings => write!(f, "settings"),
             Self::Camera => write!(f, "camera"),
             Self::WindowCaptureOccluder { screen_id } => {
@@ -1046,8 +804,7 @@ impl CapWindowId {
     pub fn activates_dock(&self) -> bool {
         matches!(
             self,
-            Self::Main
-                | Self::Editor { .. }
+            Self::Editor { .. }
                 | Self::ScreenshotEditor { .. }
                 | Self::Settings
                 | Self::ModeSelect
@@ -1062,8 +819,8 @@ impl CapWindowId {
 
         matches!(
             self,
-            Self::Main
-                | Self::Onboarding
+            Self::Onboarding
+                | Self::Teleprompter
                 | Self::Camera
                 | Self::WindowCaptureOccluder { .. }
                 | Self::CaptureArea
@@ -1089,7 +846,6 @@ impl CapWindowId {
                 Some(Some(LogicalPosition::new(20.0, 32.0)))
             }
             Self::Camera
-            | Self::Main
             | Self::Onboarding
             | Self::WindowCaptureOccluder { .. }
             | Self::CaptureArea
@@ -1104,13 +860,13 @@ impl CapWindowId {
 
     pub fn min_size(&self) -> Option<(f64, f64)> {
         Some(match self {
-            Self::Main => (330.0, 395.0),
             Self::Editor { .. } => (1275.0, 800.0),
             Self::ScreenshotEditor { .. } => (800.0, 600.0),
             Self::Settings => (780.0, 560.0),
             Self::Camera => (200.0, 200.0),
             Self::ModeSelect => (580.0, 340.0),
             Self::Onboarding => (860.0, 690.0),
+            Self::Teleprompter => (420.0, 220.0),
             _ => return None,
         })
     }
@@ -1118,9 +874,6 @@ impl CapWindowId {
 
 #[derive(Debug, Clone, Type, Deserialize)]
 pub enum ShowCapWindow {
-    Main {
-        init_target_mode: Option<RecordingTargetMode>,
-    },
     Settings {
         page: Option<String>,
     },
@@ -1147,6 +900,7 @@ pub enum ShowCapWindow {
         capture_target: Option<ScreenCaptureTarget>,
     },
     ModeSelect,
+    Teleprompter,
     ScreenshotEditor {
         path: PathBuf,
     },
@@ -1494,75 +1248,20 @@ impl ShowCapWindow {
         if !matches!(self, Self::Camera { .. } | Self::InProgressRecording { .. })
             && let Some(window) = self.id(app).get(app)
         {
-            if matches!(self, Self::Main { .. }) && crate::should_show_onboarding(app) {
-                return Box::pin(Self::Onboarding.show(app)).await;
+            if let Self::Onboarding = self {
+                let _ = window.set_ignore_cursor_events(false);
             }
 
-            #[cfg(target_os = "macos")]
-            if matches!(self, Self::Main { .. }) && !app.state::<MainWindowReadyState>().is_ready()
-            {
-                return Ok(window);
+            if matches!(self, Self::Settings { .. }) {
+                recenter_window_if_offscreen(&window);
             }
 
-            let cursor_display_id = if let Self::Main { init_target_mode } = self {
-                if init_target_mode.is_some() {
-                    Display::get_containing_cursor()
-                        .map(|d| d.id().to_string())
-                        .or_else(|| Some(Display::primary().id().to_string()))
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            window.show().ok();
+            window.unminimize().ok();
+            window.set_focus().ok();
 
-            if let Self::Main {
-                init_target_mode: Some(target_mode),
-            } = self
-            {
-                window.hide().ok();
-                emit_app_event(
-                    app,
-                    RequestSetTargetMode {
-                        target_mode: Some(*target_mode),
-                        display_id: cursor_display_id,
-                    },
-                );
-            } else {
-                let should_restore_main_window_inputs = matches!(self, Self::Main { .. });
-
-                if let Self::Onboarding = self {
-                    let _ = window.set_ignore_cursor_events(false);
-                }
-
-                if matches!(self, Self::Main { .. } | Self::Settings { .. }) {
-                    recenter_window_if_offscreen(&window);
-                }
-
-                window.show().ok();
-                window.unminimize().ok();
-                window.set_focus().ok();
-
-                if let Self::Settings { .. } = self {
-                    ensure_settings_window_bounds(&window);
-                }
-
-                if let Self::Main { init_target_mode } = self {
-                    emit_app_event(
-                        app,
-                        RequestSetTargetMode {
-                            target_mode: *init_target_mode,
-                            display_id: cursor_display_id,
-                        },
-                    );
-                }
-
-                if should_restore_main_window_inputs {
-                    let app = app.clone();
-                    tokio::spawn(async move {
-                        restore_main_window_inputs(&app).await;
-                    });
-                }
+            if let Self::Settings { .. } = self {
+                ensure_settings_window_bounds(&window);
             }
 
             #[cfg(target_os = "macos")]
@@ -1577,123 +1276,6 @@ impl ShowCapWindow {
         let cursor_monitor = CursorMonitorInfo::get();
 
         let window = match self {
-            Self::Main { init_target_mode } => {
-                if !permissions::do_permissions_check(false).necessary_granted() {
-                    return Box::pin(Self::Onboarding.show(app)).await;
-                }
-
-                let title = CapWindowId::Main.title();
-                let should_protect = should_protect_window(app, &title);
-
-                #[cfg(target_os = "macos")]
-                let panel_activation_guard = permissions::prepare_macos_panel_window(app);
-
-                let window = self
-                    .window_builder(app, "/")
-                    .resizable(false)
-                    .maximized(false)
-                    .maximizable(false)
-                    .minimizable(false)
-                    .always_on_top(true)
-                    .visible_on_all_workspaces(true)
-                    .content_protected(should_protect)
-                    .transparent(true)
-                    .visible(false)
-                    .initialization_script(format!(
-                        "
-                        window.__CAP__ = window.__CAP__ ?? {{}};
-                        window.__CAP__.initialTargetMode = {}
-                    ",
-                        serde_json::to_string(init_target_mode)
-                            .expect("Failed to serialize initial target mode")
-                    ))
-                    .build()?;
-                lock_window_text_scale(&window);
-
-                let saved_position = GeneralSettingsStore::get(app)
-                    .ok()
-                    .flatten()
-                    .and_then(|s| s.main_window_position)
-                    .filter(|pos| is_position_on_any_screen(pos.x, pos.y));
-
-                let main_position = if let Some(pos) = saved_position {
-                    match display_for_saved_position(pos.x, pos.y, pos.display_id.as_ref()) {
-                        Some(display) => {
-                            CursorMonitorInfo::from_display(&display).position(pos.x, pos.y)
-                        }
-                        None => tauri::Position::Logical(tauri::LogicalPosition::new(pos.x, pos.y)),
-                    }
-                } else {
-                    let (pos_x, pos_y) = cursor_monitor.center_position(330.0, 395.0);
-                    cursor_monitor.position(pos_x, pos_y)
-                };
-
-                #[cfg(target_os = "macos")]
-                {
-                    app.run_on_main_thread({
-                        let window = window.clone();
-                        let app = app.clone();
-                        let panel_activation_guard = panel_activation_guard;
-                        move || {
-                            let _panel_activation_guard = panel_activation_guard;
-                            use tauri_nspanel::cocoa::appkit::NSWindowCollectionBehavior;
-                            use tauri_nspanel::panel_delegate;
-                            use crate::panel_manager::try_to_panel;
-
-                            let delegate = panel_delegate!(MainPanelDelegate {
-                                window_did_become_key,
-                                window_did_resign_key
-                            });
-
-                            delegate.set_listener(Box::new(|_delegate_name: String| {}));
-
-                            let panel = match try_to_panel(&window) {
-                                Ok(p) => p,
-                                Err(e) => {
-                                    tracing::error!("Failed to convert main window to panel: {}", e);
-                                    crate::permissions::sync_macos_dock_visibility(&app);
-                                    return;
-                                }
-                            };
-
-                            panel.set_collection_behaviour(
-                                NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
-                                    | NSWindowCollectionBehavior::NSWindowCollectionBehaviorFullScreenPrimary,
-                            );
-
-                            panel.set_delegate(delegate);
-
-                            panel.set_level(MAIN_PANEL_LEVEL);
-
-                            let _ = window.set_position(main_position);
-
-                            crate::platform::apply_squircle_corners(&window, 16.0);
-
-                            crate::permissions::schedule_macos_dock_visibility_sync(&app);
-                        }
-                    })
-                    .ok();
-                }
-
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = window.set_position(main_position);
-
-                    #[cfg(windows)]
-                    {
-                        if let Err(e) = window.set_size(LogicalSize::new(330.0, 395.0)) {
-                            warn!("Failed to set Main window size on Windows: {}", e);
-                        }
-                        if let Err(e) = window.set_position(main_position) {
-                            warn!("Failed to position Main window on Windows: {}", e);
-                        }
-                    }
-
-                    window.show().ok();
-                }
-
-                window
-            }
             Self::TargetSelectOverlay {
                 display_id,
                 target_mode,
@@ -2048,11 +1630,30 @@ impl ShowCapWindow {
 
                 window
             }
-            Self::ModeSelect => {
-                if let Some(main) = CapWindowId::Main.get(app) {
-                    let _ = main.hide();
-                }
+            Self::Teleprompter => {
+                // Built here rather than from a webview: the teleprompter used to
+                // be opened by the main window's JS, and there is no main window
+                // any more. Options mirror utils/teleprompter-window-options.ts.
+                let window = self
+                    .window_builder(app, "/teleprompter")
+                    .inner_size(560.0, 320.0)
+                    .min_inner_size(420.0, 220.0)
+                    .resizable(true)
+                    .center()
+                    .transparent(true)
+                    .always_on_top(true)
+                    .visible_on_all_workspaces(true)
+                    .skip_taskbar(true)
+                    .shadow(true)
+                    .build()?;
+                lock_window_text_scale(&window);
 
+                window.show().ok();
+                window.set_focus().ok();
+
+                window
+            }
+            Self::ModeSelect => {
                 let window = self
                     .window_builder(app, "/mode-select")
                     .inner_size(580.0, 340.0)
@@ -2085,10 +1686,6 @@ impl ShowCapWindow {
                 window
             }
             Self::Onboarding => {
-                if let Some(main) = CapWindowId::Main.get(app) {
-                    let _ = main.hide();
-                }
-
                 let width = (cursor_monitor.width * 0.58).clamp(860.0, 1080.0);
                 let height = (width * 0.72).clamp(690.0, 780.0);
 
@@ -2247,10 +1844,7 @@ impl ShowCapWindow {
                         &CapWindowId::Camera.title(),
                     );
 
-                    let camera_monitor = CapWindowId::Main
-                        .get(app)
-                        .map(|w| CursorMonitorInfo::from_window(&w))
-                        .unwrap_or(cursor_monitor);
+                    let camera_monitor = cursor_monitor;
 
                     let preferred_monitor_name = display_name_for_position(
                         camera_monitor.x + camera_monitor.width / 2.0,
@@ -2663,16 +2257,6 @@ impl ShowCapWindow {
                     objc2_app_kit::NSPopUpMenuWindowLevel,
                 );
 
-                // Hide the main window if the target monitor is the same
-                if let Some(main_window) = CapWindowId::Main.get(app)
-                    && let (Ok(outer_pos), Ok(outer_size)) =
-                        (main_window.outer_position(), main_window.outer_size())
-                    && let Ok(scale_factor) = main_window.scale_factor()
-                    && display.intersects(outer_pos, outer_size, scale_factor)
-                {
-                    let _ = main_window.minimize();
-                };
-
                 window
             }
             Self::InProgressRecording {
@@ -3063,7 +2647,6 @@ impl ShowCapWindow {
 
     pub fn id(&self, app: &AppHandle) -> CapWindowId {
         match self {
-            ShowCapWindow::Main { .. } => CapWindowId::Main,
             ShowCapWindow::Settings { .. } => CapWindowId::Settings,
             ShowCapWindow::Editor { project_path } => {
                 let state = app.state::<EditorWindowIds>();
@@ -3086,6 +2669,7 @@ impl ShowCapWindow {
             ShowCapWindow::Camera { .. } => CapWindowId::Camera,
             ShowCapWindow::InProgressRecording { .. } => CapWindowId::RecordingControls,
             ShowCapWindow::ModeSelect => CapWindowId::ModeSelect,
+            ShowCapWindow::Teleprompter => CapWindowId::Teleprompter,
             ShowCapWindow::Onboarding => CapWindowId::Onboarding,
             ShowCapWindow::ScreenshotEditor { path } => {
                 let state = app.state::<ScreenshotEditorWindowIds>();
@@ -3581,13 +3165,8 @@ pub async fn apply_macos_liquid_glass_background(
 
         _window
             .run_on_main_thread(move || {
-                let result = if window.label() == CapWindowId::Main.label() {
-                    crate::platform::apply_main_window_liquid_glass_background(
-                        &window, _enabled, _radius,
-                    )
-                } else {
-                    crate::platform::apply_liquid_glass_background(&window, _enabled, _radius)
-                };
+                let result =
+                    crate::platform::apply_liquid_glass_background(&window, _enabled, _radius);
                 let _ = tx.send(result);
             })
             .map_err(|error| error.to_string())?;

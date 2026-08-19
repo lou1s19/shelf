@@ -36,22 +36,6 @@ pub enum PostScreenshotBehaviour {
 
 #[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
-pub enum MainWindowRecordingStartBehaviour {
-    #[default]
-    Close,
-    Minimise,
-}
-
-#[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy)]
-#[serde(rename_all = "camelCase")]
-pub enum PostDeletionBehaviour {
-    #[default]
-    DoNothing,
-    ReopenRecordingWindow,
-}
-
-#[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy)]
-#[serde(rename_all = "camelCase")]
 pub enum EditorPreviewQuality {
     Quarter,
     #[default]
@@ -95,22 +79,6 @@ impl From<StudioRecordingQuality> for cap_recording::StudioQuality {
 
 pub fn default_studio_recording_quality() -> StudioRecordingQuality {
     cap_recording::default_studio_recording_quality().into()
-}
-
-impl MainWindowRecordingStartBehaviour {
-    pub fn perform(&self, window: &tauri::WebviewWindow) -> tauri::Result<()> {
-        match self {
-            Self::Close => {
-                // On Windows, hide() leaves the DirectComposition surface composited on screen as
-                // a white ghost box. minimize() releases the surface without leaving an artifact.
-                #[cfg(windows)]
-                return window.minimize();
-                #[cfg(not(windows))]
-                window.hide()
-            }
-            Self::Minimise => window.minimize(),
-        }
-    }
 }
 
 // NOTE: Do not add "Shelf Target Select" here — on Windows, WDA_EXCLUDEFROMCAPTURE applied to that
@@ -194,8 +162,6 @@ pub struct GeneralSettingsStore {
     /// `None` means it stays until it is dismissed by hand.
     #[serde(default = "default_screenshot_pin_auto_hide_seconds")]
     pub screenshot_pin_auto_hide_seconds: Option<u32>,
-    #[serde(default)]
-    pub main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour,
     #[serde(
         default = "default_custom_cursor_capture",
         rename = "custom_cursor_capture2"
@@ -219,8 +185,6 @@ pub struct GeneralSettingsStore {
     pub macbook_notch_overlay: Option<bool>,
     #[serde(default = "default_capture_keyboard_events")]
     pub capture_keyboard_events: bool,
-    #[serde(default)]
-    pub post_deletion_behaviour: PostDeletionBehaviour,
     #[serde(default = "default_excluded_windows")]
     pub excluded_windows: Vec<WindowExclusion>,
     #[serde(default = "default_instant_mode_max_resolution")]
@@ -237,8 +201,6 @@ pub struct GeneralSettingsStore {
     pub editor_preview_quality: EditorPreviewQuality,
     #[serde(default)]
     pub studio_recording_quality: StudioRecordingQuality,
-    #[serde(default)]
-    pub main_window_position: Option<WindowPosition>,
     #[serde(default)]
     pub camera_window_position: Option<WindowPosition>,
     #[serde(default)]
@@ -326,7 +288,6 @@ impl Default for GeneralSettingsStore {
             post_studio_recording_behaviour: PostStudioRecordingBehaviour::OpenEditor,
             post_screenshot_behaviour: PostScreenshotBehaviour::ShowOverlay,
             screenshot_pin_auto_hide_seconds: default_screenshot_pin_auto_hide_seconds(),
-            main_window_recording_start_behaviour: MainWindowRecordingStartBehaviour::Close,
             custom_cursor_capture: cap_recording::DEFAULT_CUSTOM_CURSOR_CAPTURE,
             recording_countdown: Some(3),
             enable_native_camera_preview: default_enable_native_camera_preview(),
@@ -336,7 +297,6 @@ impl Default for GeneralSettingsStore {
             default_zoom_amount: None,
             macbook_notch_overlay: None,
             capture_keyboard_events: cap_recording::DEFAULT_CAPTURE_KEYBOARD_EVENTS,
-            post_deletion_behaviour: PostDeletionBehaviour::DoNothing,
             excluded_windows: default_excluded_windows(),
             instant_mode_max_resolution: cap_recording::DEFAULT_INSTANT_MODE_MAX_RESOLUTION,
             default_project_name_template: None,
@@ -345,7 +305,6 @@ impl Default for GeneralSettingsStore {
             transcription_hints: default_transcription_hints(),
             editor_preview_quality: EditorPreviewQuality::Half,
             studio_recording_quality: default_studio_recording_quality(),
-            main_window_position: None,
             camera_window_position: None,
             camera_window_positions_by_monitor_name: BTreeMap::new(),
             has_completed_onboarding: false,

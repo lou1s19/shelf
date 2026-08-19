@@ -457,37 +457,23 @@ impl WindowFocusManager {
     }
 
     pub fn spawn(&self, id: &DisplayId, window: WebviewWindow) {
-        let display_id = id.clone();
         let task_id = id.to_string();
         let handle = tokio::spawn(async move {
             let app = window.app_handle();
-            let mut main_window_was_seen = false;
 
             loop {
                 if crate::app_is_exiting(app) {
                     break;
                 }
 
-                let cap_main = CapWindowId::Main.get(app);
-                let cap_settings = CapWindowId::Settings.get(app);
-
-                let main_window_available = cap_main.is_some();
-                let settings_window_available = cap_settings.is_some();
-
-                if main_window_available || settings_window_available {
-                    main_window_was_seen = true;
-                }
-
-                if main_window_was_seen && !main_window_available && !settings_window_available {
-                    hide_overlay(&window);
-                    app.state::<WindowFocusManager>()
-                        .finish(&display_id, app.global_shortcut());
-                    break;
-                }
-
+                // The old safety net closed the overlay once the main and
+                // settings windows were both gone. Without a main window that
+                // check can no longer tell "the app moved on" from "this is a
+                // normal tray-driven capture", so the overlay now relies on its
+                // explicit exits: Escape, a selection, or WindowFocusManager.
                 #[cfg(windows)]
                 if window.is_visible().unwrap_or(false)
-                    && let Some(cap_main) = cap_main
+                    && let Some(cap_settings) = CapWindowId::Settings.get(app)
                 {
                     // Every overlay window (one per display) runs this loop. Checking only
                     // `window`/main focus made each inactive overlay steal focus from the
@@ -502,7 +488,7 @@ impl WindowFocusManager {
                     });
 
                     let should_refocus =
-                        overlay_focused || cap_main.is_focused().ok().unwrap_or_default();
+                        overlay_focused || cap_settings.is_focused().ok().unwrap_or_default();
 
                     if !should_refocus {
                         window.set_focus().ok();
@@ -541,14 +527,6 @@ impl WindowFocusManager {
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
         labels.clear();
-    }
-
-    fn finish<R: tauri::Runtime>(&self, id: &DisplayId, global_shortcut: &GlobalShortcut<R>) {
-        let mut tasks = self.tasks.lock().unwrap_or_else(PoisonError::into_inner);
-        tasks.remove(&id.to_string());
-        drop(tasks);
-
-        self.finish_if_idle(global_shortcut);
     }
 
     fn finish_if_idle<R: tauri::Runtime>(&self, global_shortcut: &GlobalShortcut<R>) {

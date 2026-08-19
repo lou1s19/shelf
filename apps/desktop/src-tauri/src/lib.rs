@@ -96,7 +96,6 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use tauri::Listener;
 use tauri::{AppHandle, Emitter, Manager, State, Window, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
@@ -322,24 +321,6 @@ impl AppExitState {
 
     pub fn is_exiting(&self) -> bool {
         self.0.load(Ordering::Acquire)
-    }
-}
-
-pub struct MainWindowReadyState(AtomicBool);
-
-impl Default for MainWindowReadyState {
-    fn default() -> Self {
-        Self(AtomicBool::new(false))
-    }
-}
-
-impl MainWindowReadyState {
-    pub fn is_ready(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-
-    pub fn set_ready(&self, value: bool) {
-        self.0.store(value, Ordering::Release);
     }
 }
 
@@ -1929,7 +1910,11 @@ async fn cleanup_camera_window(app: AppHandle, session_id: u64) {
             label.starts_with("target-select-overlay-") && window.is_visible().unwrap_or(false)
         });
 
-        let main_window_visible = CapWindowId::Main
+        // In camera-only mode the camera window IS the recording target, so its
+        // feed has to survive the cleanup. Previously this was tied to the main
+        // window being visible; that window is gone, the camera window itself is
+        // the reliable signal.
+        let camera_window_visible = CapWindowId::Camera
             .get(&app)
             .and_then(|w| w.is_visible().ok())
             .unwrap_or(false);
@@ -1940,7 +1925,7 @@ async fn cleanup_camera_window(app: AppHandle, session_id: u64) {
             .and_then(|s| s.target)
             .is_some_and(|t| matches!(t, ScreenCaptureTarget::CameraOnly));
 
-        if is_camera_only_mode && main_window_visible {
+        if is_camera_only_mode && camera_window_visible {
             tracing::info!("Camera cleanup: preserving camera feed for camera-only mode");
             return;
         }
@@ -4272,10 +4257,6 @@ pub async fn open_target_picker(
 ) {
     use tauri::Manager;
 
-    if let Some(window) = CapWindowId::Main.get(app) {
-        window.hide().ok();
-    }
-
     let state = app.state::<target_select_overlay::WindowFocusManager>();
     let display_id = None;
 
@@ -4727,13 +4708,13 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 .find(|arg| arg.ends_with(".cap"))
                 .map(PathBuf::from)
             else {
+                // Shelf is already running in the menu bar. A second launch has
+                // nothing to show, unless the permissions are still missing.
                 let app = app.clone();
                 tokio::spawn(async move {
-                    ShowCapWindow::Main {
-                        init_target_mode: None,
+                    if should_show_onboarding(&app) {
+                        let _ = ShowCapWindow::Onboarding.show(&app).await;
                     }
-                    .show(&app)
-                    .await
                 });
                 return;
             };
@@ -4781,7 +4762,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 })
                 .with_denylist(&[
                     CapWindowId::Onboarding.label().as_str(),
-                    CapWindowId::Main.label().as_str(),
                     CapWindowId::Settings.label().as_str(),
                     "window-capture-occluder",
                     "target-select-overlay",
@@ -4909,7 +4889,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 app.manage(CameraWindowPositionGuard::default());
                 app.manage(CameraWindowOperationLock::default());
                 app.manage(AppExitState::default());
-                app.manage(MainWindowReadyState::default());
                 app.manage(deeplink_actions::DeepLinkActionExecutor::new(&app));
                 #[cfg(target_os = "macos")]
                 install_macos_native_terminate_handler(&app);
@@ -4920,29 +4899,29 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 )));
             }
 
-            app.listen_any("main-window-ready", {
-                let app = app.clone();
-                move |_| {
-                    app.state::<MainWindowReadyState>().set_ready(true);
-                    gpu_context::prewarm_gpu();
-                    tokio::task::spawn_blocking(cap_rendering::prewarm_fonts);
-                    tokio::spawn(screenshot_editor::prewarm_screenshot_renderer());
+            // Shelf has no main window, so the prewarms run as soon as the app is
+            // up instead of waiting for a webview to report itself ready. Without
+            // this the first screenshot pays for GPU setup, font loading and the
+            // ScreenCaptureKit handshake all at once (roughly three seconds).
+            {
+                gpu_context::prewarm_gpu();
+                tokio::task::spawn_blocking(cap_rendering::prewarm_fonts);
+                tokio::spawn(screenshot_editor::prewarm_screenshot_renderer());
 
-                    #[cfg(target_os = "macos")]
-                    {
-                        let app = app.clone();
-                        tokio::spawn(async move {
-                            if let Some(prewarmer) =
-                                app.try_state::<crate::platform::ScreenCapturePrewarmer>()
-                            {
-                                prewarmer.request(false).await;
-                            } else {
-                                warn!("ScreenCapturePrewarmer state unavailable after main window ready");
-                            }
-                        });
-                    }
+                #[cfg(target_os = "macos")]
+                {
+                    let app = app.clone();
+                    tokio::spawn(async move {
+                        if let Some(prewarmer) =
+                            app.try_state::<crate::platform::ScreenCapturePrewarmer>()
+                        {
+                            prewarmer.request(false).await;
+                        } else {
+                            warn!("ScreenCapturePrewarmer state unavailable at startup");
+                        }
+                    });
                 }
-            });
+            }
 
             tokio::spawn({
                 let app = app.clone();
@@ -4970,16 +4949,11 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             tokio::spawn({
                 let app = app.clone();
                 async move {
+                    // Shelf lives in the menu bar. Nothing is shown at startup
+                    // unless the permissions are still missing.
                     if should_show_onboarding(&app) {
                         println!("Showing onboarding");
                         let _ = ShowCapWindow::Onboarding.show(&app).await;
-                    } else {
-                        println!("Showing main window");
-                        let _ = ShowCapWindow::Main {
-                            init_target_mode: None,
-                        }
-                        .show(&app)
-                        .await;
                     }
                 }
             });
@@ -4996,8 +4970,17 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                     .flatten()
                     .unwrap_or_default();
 
-                let _ = set_mic_input(app.state(), settings.mic_name).await;
-                let _ = set_camera_input(app.clone(), app.state(), settings.camera_id, None).await;
+                // A device that refuses to open must not silence the whole start:
+                // recording without it is still better than nothing happening.
+                // It is logged so a "why is there no sound" report is traceable.
+                if let Err(err) = set_mic_input(app.state(), settings.mic_name).await {
+                    warn!(error = %err, "Microphone could not be prepared for this recording");
+                }
+                if let Err(err) =
+                    set_camera_input(app.clone(), app.state(), settings.camera_id, None).await
+                {
+                    warn!(error = %err, "Camera could not be prepared for this recording");
+                }
 
                 let _ = start_recording(app.clone(), app.state(), {
                     recording::StartRecordingInputs {
@@ -5014,15 +4997,13 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             });
 
             RequestOpenRecordingPicker::listen_any_spawn(&app, async |event, app| {
-                if let Some(target_mode) = event.target_mode {
-                    open_target_picker(&app, target_mode).await;
-                } else {
-                    let _ = ShowCapWindow::Main {
-                        init_target_mode: None,
-                    }
-                    .show(&app)
-                    .await;
-                }
+                // Without a target mode this used to open the main window. There
+                // is none, so the picker defaults to Display, which is what the
+                // window preselected anyway.
+                let target_mode = event
+                    .target_mode
+                    .unwrap_or(recording_settings::RecordingTargetMode::Display);
+                open_target_picker(&app, target_mode).await;
             });
 
             RequestOpenSettings::listen_any_spawn(&app, async |payload, app| {
@@ -5121,62 +5102,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                                         cleanup_camera_window(app, session_id).await;
                                     });
                                 }
-                                CapWindowId::Main => {
-                                api.prevent_close();
-                                let _ = window.hide();
-
-                                #[cfg(target_os = "macos")]
-                                crate::permissions::schedule_macos_dock_visibility_sync(app);
-
-                                let Some(state) = app.try_state::<ArcLock<App>>() else {
-                                    warn!("App state unavailable during main window close request");
-                                    return;
-                                };
-                                let is_recording = state
-                                    .try_read()
-                                    .map(|s| s.is_recording_active_or_pending())
-                                    .unwrap_or(true);
-
-                                if !is_recording {
-                                    if let Some(camera_window) = CapWindowId::Camera.get(app) {
-                                        let _ = camera_window.hide();
-                                    }
-
-                                    close_target_select_overlays(app);
-
-                                    let app = app.clone();
-                                    spawn_on_runtime(async move {
-                                        let Some(state) = app.try_state::<ArcLock<App>>() else {
-                                            warn!("App state unavailable during main window close cleanup");
-                                            return;
-                                        };
-
-                                        let (mic_feed, camera_feed) = {
-                                            let mut app_state = state.write().await;
-                                            app_state.camera_preview.pause();
-                                            (
-                                                app_state.mic_feed.clone(),
-                                                app_state.camera_feed.clone(),
-                                            )
-                                        };
-
-                                        let _ = tokio::time::timeout(
-                                            APP_EXIT_STEP_TIMEOUT,
-                                            mic_feed.ask(microphone::RemoveInput),
-                                        )
-                                        .await;
-                                        let _ = tokio::time::timeout(
-                                            APP_EXIT_STEP_TIMEOUT,
-                                            camera_feed.ask(feeds::camera::RemoveInput),
-                                        )
-                                        .await;
-
-                                        let mut app_state = state.write().await;
-                                        app_state.selected_mic_label = None;
-                                        app_state.camera_in_use = false;
-                                    });
-                                }
-                            }
                             _ => {}
                         }
                     }
@@ -5207,54 +5132,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                             tracing::warn!("Camera window Destroyed event received!");
                         }
                         match window_id {
-                            CapWindowId::Main => {
-                                let app = app.clone();
-
-                                close_target_select_overlays(&app);
-
-                                if let Some(camera) = CapWindowId::Camera.get(&app) {
-                                    let _ = camera.hide();
-                                }
-
-                                spawn_on_runtime(async move {
-                                    let Some(state) = app.try_state::<ArcLock<App>>() else {
-                                        warn!("App state unavailable during main window destroyed cleanup");
-                                        return;
-                                    };
-
-                                    let feeds = {
-                                        let app_state = state.read().await;
-                                        if app_state.is_recording_active_or_pending() {
-                                            None
-                                        } else {
-                                            Some((
-                                                app_state.mic_feed.clone(),
-                                                app_state.camera_feed.clone(),
-                                            ))
-                                        }
-                                    };
-
-                                    if let Some((mic_feed, camera_feed)) = feeds {
-                                        let _ = tokio::time::timeout(
-                                            APP_EXIT_STEP_TIMEOUT,
-                                            mic_feed.ask(microphone::RemoveInput),
-                                        )
-                                        .await;
-                                        let _ = tokio::time::timeout(
-                                            APP_EXIT_STEP_TIMEOUT,
-                                            camera_feed.ask(feeds::camera::RemoveInput),
-                                        )
-                                        .await;
-
-                                        let mut app_state = state.write().await;
-                                        if !app_state.is_recording_active_or_pending() {
-                                            app_state.selected_mic_label = None;
-                                            app_state.selected_camera_id = None;
-                                            app_state.camera_in_use = false;
-                                        }
-                                    }
-                                });
-                            }
                             CapWindowId::Editor { id } => {
                                 let window_ids = EditorWindowIds::get(window.app_handle());
                                 match window_ids.ids.lock() {
@@ -5296,11 +5173,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                                 restore_main_and_target_select_windows(app);
 
                                 restore_camera_window(app);
-
-                                #[cfg(target_os = "windows")]
-                                if !has_open_editor_window(app) {
-                                    reopen_main_window(app);
-                                }
 
                                 #[cfg(target_os = "macos")]
                                 return;
@@ -5380,11 +5252,8 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                     let window_id = CapWindowId::from_str(label).ok();
                     for path in paths {
-                        let result = if matches!(window_id, Some(CapWindowId::Main)) {
-                            open_importable_from_path(path, app.clone())
-                        } else {
-                            open_project_from_path(path, app.clone())
-                        };
+                        let _ = window_id;
+                        let result = open_importable_from_path(path, app.clone());
 
                         if let Err(err) = result {
                             warn!(path = %path.display(), error = %err, "Failed to open dropped path");
@@ -5393,40 +5262,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 }
                 WindowEvent::Moved(position) => {
                     let window_id = CapWindowId::from_str(label);
-
-                    #[cfg(target_os = "macos")]
-                    if matches!(&window_id, Ok(CapWindowId::Main))
-                        && let Some(constrained_position) =
-                            platform::constrain_main_window_to_visible_top(window, *position)
-                    {
-                        match window.set_position(constrained_position) {
-                            Ok(()) => {
-                                let scale_factor = window
-                                    .current_monitor()
-                                    .ok()
-                                    .flatten()
-                                    .map(|monitor| monitor.scale_factor())
-                                    .unwrap_or_else(|| window.scale_factor().unwrap_or(1.0));
-                                let logical_pos =
-                                    constrained_position.to_logical::<f64>(scale_factor);
-                                let display_id = display_for_position(logical_pos.x, logical_pos.y)
-                                    .map(|display| display.id());
-                                window_position_persistence::queue_main_position(
-                                    app,
-                                    general_settings::WindowPosition {
-                                        x: logical_pos.x,
-                                        y: logical_pos.y,
-                                        display_id,
-                                    },
-                                );
-                                return;
-                            }
-                            Err(error) => warn!(
-                                %error,
-                                "Failed to constrain main window to the visible screen area"
-                            ),
-                        }
-                    }
 
                     if let Ok(window_id) = window_id {
                         let scale_factor = window.scale_factor().unwrap_or(1.0);
@@ -5442,18 +5277,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                         let moved_display = display_for_position(logical_pos.x, logical_pos.y);
 
                         match window_id {
-                            CapWindowId::Main => {
-                                let display_id =
-                                    moved_display.as_ref().map(|display| display.id());
-                                window_position_persistence::queue_main_position(
-                                    app,
-                                    general_settings::WindowPosition {
-                                        x: logical_pos.x,
-                                        y: logical_pos.y,
-                                        display_id,
-                                    },
-                                );
-                            }
                             CapWindowId::Camera => {
                                 if app
                                     .try_state::<CameraWindowPositionGuard>()
@@ -5588,13 +5411,16 @@ fn handle_run_event(_handle: &AppHandle, event: tauri::RunEvent) {
                     window.set_focus().ok();
                 }
             } else {
+                // Shelf has no main window to bring back, so the dock click has
+                // nothing to open. The strict permission re-check still has to
+                // happen here: `should_show_onboarding` above may have consumed
+                // an optimistic answer (see the note in permissions.rs), and
+                // ShowCapWindow::Main used to be what corrected it off-thread.
                 let handle = _handle.clone();
                 spawn_on_runtime(async move {
-                    let _ = ShowCapWindow::Main {
-                        init_target_mode: None,
+                    if !permissions::do_permissions_check(false).necessary_granted() {
+                        let _ = ShowCapWindow::Onboarding.show(&handle).await;
                     }
-                    .show(&handle)
-                    .await;
                 });
             }
         }
@@ -5615,6 +5441,9 @@ fn handle_run_event(_handle: &AppHandle, event: tauri::RunEvent) {
                     spawn_on_runtime(async move {
                         request_app_exit(handle).await;
                     });
+                }
+                ExitRequestDecision::StayResident => {
+                    info!("Last window closed; Shelf stays in the menu bar");
                 }
                 ExitRequestDecision::AlreadyExiting => {}
                 ExitRequestDecision::ExportActive => {
@@ -5676,20 +5505,6 @@ where
     }
 }
 
-fn show_camera_window_unlocked(app: &AppHandle) {
-    let app = app.clone();
-    spawn_on_runtime(async move {
-        let _ = ShowCapWindow::Camera { centered: false }.show(&app).await;
-    });
-}
-
-#[cfg(target_os = "windows")]
-fn has_open_editor_window(app: &AppHandle) -> bool {
-    app.webview_windows()
-        .keys()
-        .any(|label| matches!(CapWindowId::from_str(label), Ok(CapWindowId::Editor { .. })))
-}
-
 fn restore_main_windows_if_no_editors(app: &AppHandle) {
     let has_other_editors = app.webview_windows().keys().any(|label| {
         matches!(
@@ -5700,11 +5515,6 @@ fn restore_main_windows_if_no_editors(app: &AppHandle) {
 
     if !has_other_editors {
         if CapWindowId::Settings.get(app).is_none() {
-            if let Some(main) = CapWindowId::Main.get(app) {
-                let _ = main.show();
-            }
-
-            restore_main_window_inputs(app);
             restore_camera_window(app);
         }
 
@@ -5728,21 +5538,10 @@ fn restore_main_and_target_select_windows(app: &AppHandle) {
                         show_overlay(&window);
                     }
                 }
-                CapWindowId::Main => {
-                    let _ = window.show();
-                    restore_main_window_inputs(app);
-                }
                 _ => {}
             }
         }
     }
-}
-
-fn restore_main_window_inputs(app: &AppHandle) {
-    let handle = app.clone();
-    spawn_on_runtime(async move {
-        windows::restore_main_window_inputs(&handle).await;
-    });
 }
 
 fn restore_camera_window(app: &AppHandle) {
@@ -5771,24 +5570,6 @@ fn restore_camera_window(app: &AppHandle) {
 
 fn close_target_select_overlays(app: &AppHandle) {
     target_select_overlay::close_target_select_overlay_windows(app);
-}
-
-#[cfg(target_os = "windows")]
-fn reopen_main_window(app: &AppHandle) {
-    if let Some(main) = CapWindowId::Main.get(app) {
-        let _ = main.show();
-        let _ = main.set_focus();
-        restore_main_window_inputs(app);
-    } else {
-        let handle = app.clone();
-        tokio::spawn(async move {
-            let _ = ShowCapWindow::Main {
-                init_target_mode: None,
-            }
-            .show(&handle)
-            .await;
-        });
-    }
 }
 
 async fn mark_crashed_recordings_failed(app: AppHandle) -> Result<(), String> {
@@ -6073,12 +5854,6 @@ fn show_import_error_dialog(app: &AppHandle, message: String) {
         .show(|_| {});
 }
 
-fn hide_main_window(app: &AppHandle) {
-    if let Some(main_window) = CapWindowId::Main.get(app) {
-        let _ = main_window.hide();
-    }
-}
-
 fn open_importable_from_path(path: &Path, app: AppHandle) -> Result<(), String> {
     if import::is_supported_video_import_path(path) {
         let source_path = path.to_path_buf();
@@ -6093,8 +5868,6 @@ fn open_importable_from_path(path: &Path, app: AppHandle) -> Result<(), String> 
                         );
                         return;
                     }
-
-                    hide_main_window(&app);
                 }
                 Err(err) => {
                     error!("Failed to import dropped video: {err}");
@@ -6118,8 +5891,6 @@ fn open_importable_from_path(path: &Path, app: AppHandle) -> Result<(), String> 
                         );
                         return;
                     }
-
-                    hide_main_window(&app);
                 }
                 Err(err) => {
                     error!("Failed to import dropped image: {err}");
@@ -6155,9 +5926,6 @@ fn open_project_from_path(path: &Path, app: AppHandle) -> Result<(), String> {
                 let _ = app
                     .opener()
                     .open_path(mp4_path.to_str().unwrap_or_default(), None::<String>);
-                if let Some(main_window) = CapWindowId::Main.get(&app) {
-                    main_window.hide().ok();
-                }
             }
         }
     }
