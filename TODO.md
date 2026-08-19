@@ -127,6 +127,12 @@ Debug-Bau nehmen, der Unterschied fällt nur beim Video-Export auf.
 - **Alte Instanz.** `open` startet eine laufende App nicht neu, sondern holt sie
   nach vorn. Nach jedem Bau erst `pkill -f "Shelf.app/Contents"`, sonst testet
   man die alte Fassung. Genau daran sind wir einmal hängen geblieben.
+- **DMG bleibt gemountet.** Der Bau erzeugt neben der App auch ein DMG und
+  hängt es ein. `open -a Shelf` startet dann die Kopie von `/Volumes/dmg.XXXX/`,
+  und die hat keine Systemrechte, also scheitert die Bildschirmaufnahme mit
+  „TCCs abgelehnt". Zum Testen den vollen Pfad nehmen:
+  `/Applications/Shelf.app/Contents/MacOS/Shelf`, und mit `hdiutil detach`
+  aufräumen. Hat schon einmal eine falsche Fehlersuche ausgelöst.
 - **iCloud im Repo-Ordner.** `~/Desktop` wird synchronisiert und hängt den
   Dateien laufend Zusatzinfos an, die `codesign` ablehnt. Deshalb wird mit
   `ditto --noextattr` nach `/Applications` kopiert und erst dort signiert.
