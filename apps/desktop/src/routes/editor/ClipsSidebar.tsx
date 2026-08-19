@@ -26,6 +26,13 @@ import {
 import { produce, reconcile } from "solid-js/store";
 import { Portal } from "solid-js/web";
 import toast from "solid-toast";
+import { CameraSelectBase } from "~/components/recording/CameraSelect";
+import InfoPill from "~/components/recording/InfoPill";
+import { MicrophoneSelectBase } from "~/components/recording/MicrophoneSelect";
+import SystemAudio from "~/components/recording/SystemAudio";
+import TargetDropdownButton from "~/components/recording/TargetDropdownButton";
+import TargetMenuGrid from "~/components/recording/TargetMenuGrid";
+import TargetTypeButton from "~/components/recording/TargetTypeButton";
 import { createDevicesQuery } from "~/utils/devices";
 import {
 	createCameraMutation,
@@ -42,13 +49,6 @@ import {
 	type RecordingTargetMode,
 	type ScreenCaptureTarget,
 } from "~/utils/tauri";
-import { CameraSelectBase } from "../(window-chrome)/new-main/CameraSelect";
-import InfoPill from "../(window-chrome)/new-main/InfoPill";
-import { MicrophoneSelectBase } from "../(window-chrome)/new-main/MicrophoneSelect";
-import SystemAudio from "../(window-chrome)/new-main/SystemAudio";
-import TargetDropdownButton from "../(window-chrome)/new-main/TargetDropdownButton";
-import TargetMenuGrid from "../(window-chrome)/new-main/TargetMenuGrid";
-import TargetTypeButton from "../(window-chrome)/new-main/TargetTypeButton";
 import {
 	RecordingOptionsProvider,
 	useRecordingOptions,

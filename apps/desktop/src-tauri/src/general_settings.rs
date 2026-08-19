@@ -81,7 +81,6 @@ pub fn default_studio_recording_quality() -> StudioRecordingQuality {
     cap_recording::default_studio_recording_quality().into()
 }
 
-
 // NOTE: Do not add "Shelf Target Select" here — on Windows, WDA_EXCLUDEFROMCAPTURE applied to that
 // hidden window causes it to reappear as a ghost overlay after recording ends.
 const DEFAULT_EXCLUDED_WINDOW_TITLES: &[&str] = &[

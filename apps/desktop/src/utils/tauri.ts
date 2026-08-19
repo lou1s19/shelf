@@ -95,6 +95,10 @@ async listSystemFonts() : Promise<string[]> {
 async closeRecordingsOverlayWindow() : Promise<void> {
     await TAURI_INVOKE("close_recordings_overlay_window");
 },
+/**
+ * Returns `true` once the file was actually dropped somewhere, `false` when the drag was
+ * cancelled. Callers use that to decide whether the dragged item may disappear from their list.
+ */
 async startFileDrag(path: string) : Promise<boolean> {
     return await TAURI_INVOKE("start_file_drag", { path });
 },
@@ -936,13 +940,13 @@ export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?
  * Seconds a pinned screenshot stays on screen before it removes itself.
  * `None` means it stays until it is dismissed by hand.
  */
-screenshotPinAutoHideSeconds?: number | null; mainWindowRecordingStartBehaviour?: MainWindowRecordingStartBehaviour; custom_cursor_capture2?: boolean; recordingCountdown?: number | null; enableNativeCameraPreview: boolean; autoZoomOnClicks?: boolean; defaultZoomAmount?: number | null; 
+screenshotPinAutoHideSeconds?: number | null; custom_cursor_capture2?: boolean; recordingCountdown?: number | null; enableNativeCameraPreview: boolean; autoZoomOnClicks?: boolean; defaultZoomAmount?: number | null; 
 /**
  * `None` until [`init`] seeds it from whether this machine has a notched
  * display. From then on it is the user's preference and nothing re-reads
  * the hardware, so moving between machines can't silently flip it.
  */
-macbookNotchOverlay?: boolean | null; captureKeyboardEvents?: boolean; postDeletionBehaviour?: PostDeletionBehaviour; excludedWindows?: WindowExclusion[]; instantModeMaxResolution?: number; defaultProjectNameTemplate?: string | null; crashRecoveryRecording?: boolean; maxFps?: number; transcriptionHints?: string[]; editorPreviewQuality?: EditorPreviewQuality; studioRecordingQuality?: StudioRecordingQuality; mainWindowPosition?: WindowPosition | null; cameraWindowPosition?: WindowPosition | null; cameraWindowPositionsByMonitorName?: { [key in string]: WindowPosition }; hasCompletedOnboarding?: boolean; enableTelemetry?: boolean; outOfProcessMuxer?: boolean; recordingsPath?: string | null; 
+macbookNotchOverlay?: boolean | null; captureKeyboardEvents?: boolean; excludedWindows?: WindowExclusion[]; instantModeMaxResolution?: number; defaultProjectNameTemplate?: string | null; crashRecoveryRecording?: boolean; maxFps?: number; transcriptionHints?: string[]; editorPreviewQuality?: EditorPreviewQuality; studioRecordingQuality?: StudioRecordingQuality; cameraWindowPosition?: WindowPosition | null; cameraWindowPositionsByMonitorName?: { [key in string]: WindowPosition }; hasCompletedOnboarding?: boolean; enableTelemetry?: boolean; outOfProcessMuxer?: boolean; recordingsPath?: string | null; 
 /**
  * Custom recordings folders that were used before; recordings left in
  * them stay visible in the library. Most recent last.
@@ -989,7 +993,6 @@ export type LogicalBounds = { position: LogicalPosition; size: LogicalSize }
 export type LogicalPosition = { x: number; y: number }
 export type LogicalSize = { width: number; height: number }
 export type MacOSVersionInfo = { major: number; minor: number; patch: number; displayName: string; buildNumber: string; isAppleSilicon: boolean }
-export type MainWindowRecordingStartBehaviour = "close" | "minimise"
 export type MaskKeyframes = { position?: MaskVectorKeyframe[]; size?: MaskVectorKeyframe[]; intensity?: MaskScalarKeyframe[] }
 export type MaskKind = "sensitive" | "highlight"
 export type MaskScalarKeyframe = { time: number; value: number }
@@ -1026,17 +1029,16 @@ export type OSPermissionsCheck = { screenRecording: OSPermissionStatus; micropho
 export type OnEscapePress = null
 export type PhysicalSize = { width: number; height: number }
 export type Platform = "MacOS" | "Windows" | "Linux"
-export type PostDeletionBehaviour = "doNothing" | "reopenRecordingWindow"
 export type PostScreenshotBehaviour = "openEditor" | 
 /**
  * Default: a screenshot parks as a card in the overlay instead of taking
  * over the screen with the editor.
  */
-"showOverlay" |
+"showOverlay" | 
 /**
  * The file is written and nothing opens; only the system notification shows up.
  */
-"saveOnly" |
+"saveOnly" | 
 /**
  * The file is written and put on the clipboard, without anything opening.
  */
@@ -1100,18 +1102,18 @@ export type SceneMode = "default" | "cameraOnly" | "hideCamera" | "splitScreen" 
  */
 "floating"
 export type SceneSegment = { start: number; end: number; mode?: SceneMode; splitLayout?: SplitLayout | null; transitionIn?: number; transitionOut?: number }
-/**
- * Sent as soon as the capture exists in memory, long before the PNG is written, so the pin can
- * appear right away. `preview` is a small JPEG data URL in card size; the overlay swaps it for
- * the real file once [`crate::NewScreenshotAdded`] follows.
- */
-export type ScreenshotPinPreview = { path: string; preview: string }
 export type ScreenCaptureTarget = { variant: "window"; id: WindowId } | { variant: "display"; id: DisplayId } | { variant: "area"; screen: DisplayId; bounds: LogicalBounds } | { variant: "cameraOnly" }
 export type ScreenMovementSpring = { stiffness: number; damping: number; mass: number }
 export type ScreenshotMetaWithMetadata = ((StudioRecordingMeta | InstantRecordingMeta) & { platform?: Platform | null; pretty_name: string; sharing?: SharingMeta | null; upload?: UploadMeta | null }) & { sort_time_millis: number }
 export type ScreenshotOcrLine = { text: string; confidence: number | null; bounds: ScreenshotOcrRegion }
 export type ScreenshotOcrRegion = { x: number; y: number; width: number; height: number }
 export type ScreenshotOcrResult = { text: string; lines: ScreenshotOcrLine[]; engine: string }
+/**
+ * Sent as soon as the capture exists in memory, long before the PNG is written, so the pin can
+ * appear right away. `preview` is a small JPEG data URL in card size; the overlay swaps it for
+ * the real file once [`crate::NewScreenshotAdded`] follows.
+ */
+export type ScreenshotPinPreview = { path: string; preview: string }
 export type ScreenshotProjectExport = { imageBytes: number[]; config: ProjectConfiguration; imageWidth: number; imageHeight: number }
 export type SegmentRecordings = { display: Video; camera: Video | null; mic: Audio | null; system_audio: Audio | null }
 export type SerializedEditorInstance = { framesSocketUrl: string; recordingDuration: number; savedProjectConfig: ProjectConfiguration; recordings: ProjectRecordingsMeta; path: string; 
@@ -1125,7 +1127,7 @@ export type SerializedScreenshotEditorInstance = { framesSocketUrl: string; path
 export type SetCaptureAreaPending = boolean
 export type ShadowConfiguration = { size: number; opacity: number; blur: number }
 export type SharingMeta = { id: string; link: string; content_hash?: string | null }
-export type ShowCapWindow = { Main: { init_target_mode: RecordingTargetMode | null } } | { Settings: { page: string | null } } | { Editor: { project_path: string } } | "RecordingsOverlay" | { WindowCaptureOccluder: { screen_id: DisplayId } } | { TargetSelectOverlay: { display_id: DisplayId; target_mode: RecordingTargetMode | null } } | { CaptureArea: { screen_id: DisplayId } } | { Camera: { centered: boolean } } | { InProgressRecording: { countdown: number | null; capture_target?: ScreenCaptureTarget | null } } | "ModeSelect" | { ScreenshotEditor: { path: string } } | "Onboarding"
+export type ShowCapWindow = { Settings: { page: string | null } } | { Editor: { project_path: string } } | "RecordingsOverlay" | { WindowCaptureOccluder: { screen_id: DisplayId } } | { TargetSelectOverlay: { display_id: DisplayId; target_mode: RecordingTargetMode | null } } | { CaptureArea: { screen_id: DisplayId } } | { Camera: { centered: boolean } } | { InProgressRecording: { countdown: number | null; capture_target?: ScreenCaptureTarget | null } } | "ModeSelect" | "Teleprompter" | { ScreenshotEditor: { path: string } } | "Onboarding"
 export type SingleSegment = { display: VideoMeta; camera?: VideoMeta | null; audio?: AudioMeta | null; cursor?: string | null }
 export type SplitLayout = { screenZoom: number; screenPosition: XY<number>; cameraZoom: number; cameraPosition: XY<number> }
 export type StartRecordingInputs = { capture_target: ScreenCaptureTarget; capture_system_audio?: boolean; mode: RecordingMode }

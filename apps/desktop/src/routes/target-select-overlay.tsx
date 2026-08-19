@@ -55,6 +55,9 @@ import {
 	type Ratio,
 } from "~/components/Cropper";
 import ModeSelect from "~/components/ModeSelect";
+import { CameraSelectBase } from "~/components/recording/CameraSelect";
+import InfoPill from "~/components/recording/InfoPill";
+import { MicrophoneSelectBase } from "~/components/recording/MicrophoneSelect";
 import SelectionHint from "~/components/selection-hint";
 import { generalSettingsStore, recordingStartSafetyStore } from "~/store";
 import {
@@ -85,9 +88,6 @@ import {
 	type ScreenCaptureTarget,
 	type TargetUnderCursor,
 } from "~/utils/tauri";
-import { CameraSelectBase } from "./(window-chrome)/new-main/CameraSelect";
-import InfoPill from "./(window-chrome)/new-main/InfoPill";
-import { MicrophoneSelectBase } from "./(window-chrome)/new-main/MicrophoneSelect";
 import {
 	RecordingOptionsProvider,
 	useRecordingOptions,
@@ -2012,12 +2012,8 @@ function RecordingControls(props: {
 					toast.error(`Failed to start recording: ${msg}`);
 				}
 				// An IPC-level rejection never reaches the backend, so no
-				// StartFailed event fires; the picker flow hid the main
-				// window and dismissal closed the overlays — without this,
-				// the whole app visually vanishes with no recording.
-				void commands.showWindow({
-					Main: { init_target_mode: null },
-				});
+				// StartFailed event fires. Closing the overlays is all that is
+				// left to do; the menu bar stays where it is.
 				void commands.closeTargetSelectOverlays();
 			});
 	};

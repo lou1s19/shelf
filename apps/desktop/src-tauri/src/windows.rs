@@ -28,7 +28,8 @@ use tracing::{debug, error, info, instrument, warn};
 use crate::panel_manager::{PanelManager, PanelState, PanelWindowType, is_window_handle_valid};
 
 use crate::{
-    App, ArcLock, CameraWindowCloseGate, CameraWindowPositionGuard, NewNotification, RequestSetTargetMode, camera_preview_error_message,
+    App, ArcLock, CameraWindowCloseGate, CameraWindowPositionGuard, NewNotification,
+    RequestSetTargetMode, camera_preview_error_message,
     editor_window::PendingEditorInstances,
     emit_camera_preview_clear, emit_camera_preview_error, fake_window,
     general_settings::{self, AppTheme, GeneralSettingsStore},

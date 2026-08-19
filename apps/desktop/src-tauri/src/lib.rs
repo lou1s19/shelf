@@ -5856,7 +5856,6 @@ fn open_importable_from_path(path: &Path, app: AppHandle) -> Result<(), String> 
                         );
                         return;
                     }
-
                 }
                 Err(err) => {
                     error!("Failed to import dropped video: {err}");
@@ -5880,7 +5879,6 @@ fn open_importable_from_path(path: &Path, app: AppHandle) -> Result<(), String> 
                         );
                         return;
                     }
-
                 }
                 Err(err) => {
                     error!("Failed to import dropped image: {err}");

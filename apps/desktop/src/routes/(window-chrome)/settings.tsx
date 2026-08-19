@@ -7,6 +7,7 @@ import toast from "solid-toast";
 import { CapErrorBoundary } from "~/components/CapErrorBoundary";
 import { commands } from "~/utils/tauri";
 import IconLucideTerminal from "~icons/lucide/terminal";
+import IconLucideVideo from "~icons/lucide/video";
 import IconLucideZap from "~icons/lucide/zap";
 
 function SettingsContentSkeleton() {
@@ -68,6 +69,11 @@ export default function Settings(props: RouteSectionProps) {
 			href: "recordings",
 			name: "Recordings",
 			icon: IconLucideSquarePlay,
+		},
+		{
+			href: "devices",
+			name: "Devices",
+			icon: IconLucideVideo,
 		},
 		{
 			href: "screenshots",

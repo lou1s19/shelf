@@ -65,8 +65,7 @@ use crate::{
     audio::AppSounds,
     create_screenshot, create_screenshot_source_from_segments,
     general_settings::{
-        GeneralSettingsStore, PostScreenshotBehaviour,
-        PostStudioRecordingBehaviour,
+        GeneralSettingsStore, PostScreenshotBehaviour, PostStudioRecordingBehaviour,
     },
     presets::PresetsStore,
     thumbnails::*,

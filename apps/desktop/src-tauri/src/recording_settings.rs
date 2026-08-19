@@ -74,7 +74,10 @@ impl RecordingSettingsStore {
         Self::update(app, |settings| settings.system_audio = enabled)
     }
 
-    pub fn set_target(app: &AppHandle<Wry>, target: Option<ScreenCaptureTarget>) -> Result<(), String> {
+    pub fn set_target(
+        app: &AppHandle<Wry>,
+        target: Option<ScreenCaptureTarget>,
+    ) -> Result<(), String> {
         Self::update(app, |settings| settings.target = target)
     }
 

@@ -370,7 +370,7 @@ export default function OnboardingPage() {
 		if (!isRevisit()) {
 			await generalSettingsStore.set({ hasCompletedOnboarding: true });
 		}
-		await commands.showWindow({ Main: { init_target_mode: null } });
+		// Nothing to open afterwards: Shelf lives in the menu bar.
 		await getCurrentWindow().close();
 	};
 

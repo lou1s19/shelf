@@ -27,12 +27,14 @@ import { initAnonymousUser } from "./utils/analytics";
 import { type AppTheme, commands } from "./utils/tauri";
 import titlebar from "./utils/titlebar-state";
 
-const NewMainPage = lazy(() => import("./routes/(window-chrome)/new-main"));
 const SettingsGeneralPage = lazy(
 	() => import("./routes/(window-chrome)/settings/general"),
 );
 const SettingsRecordingsPage = lazy(
 	() => import("./routes/(window-chrome)/settings/recordings"),
+);
+const SettingsDevicesPage = lazy(
+	() => import("./routes/(window-chrome)/settings/devices"),
 );
 const SettingsTranscriptionPage = lazy(
 	() => import("./routes/(window-chrome)/settings/transcription"),
@@ -162,11 +164,11 @@ function Inner() {
 					}}
 				>
 					<Route path="/" component={WindowChromeLayout}>
-						<Route path="/" component={NewMainPage} />
 						<Route path="/settings" component={SettingsLayout}>
 							<Route path="/" component={SettingsGeneralPage} />
 							<Route path="/general" component={SettingsGeneralPage} />
 							<Route path="/recordings" component={SettingsRecordingsPage} />
+							<Route path="/devices" component={SettingsDevicesPage} />
 							<Route
 								path="/transcription"
 								component={SettingsTranscriptionPage}
