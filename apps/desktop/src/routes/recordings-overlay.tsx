@@ -134,9 +134,15 @@ export default function () {
 		if (run) setHoveredCopy(() => run);
 		if (!copyTarget()) return;
 
-		clearTimers();
+		if (releaseTimer !== undefined) {
+			clearTimeout(releaseTimer);
+			releaseTimer = undefined;
+		}
 		setCopyShortcut(true);
-		maxHoldTimer = setTimeout(releaseCopyShortcut, MAX_HOLD_MS);
+		// Only started once. Restarting it on every re-arm would let the flapping
+		// hit test push the cap ahead of itself forever.
+		if (maxHoldTimer === undefined)
+			maxHoldTimer = setTimeout(releaseCopyShortcut, MAX_HOLD_MS);
 	};
 
 	/** Not an immediate release: a flapping hit test would disarm mid-keystroke. */
@@ -394,11 +400,15 @@ export default function () {
 									if (allMedia()[0]?.path === media.path)
 										setNewestCopy(() => copyThisCard);
 								});
-								onCleanup(() =>
+								// Both signals may still point at this card when it is
+								// removed by a path that fires no mouseleave: the copy
+								// button, a finished export, a drag-out.
+								onCleanup(() => {
 									setNewestCopy((current) =>
 										current === copyThisCard ? null : current,
-									),
-								);
+									);
+									if (hoveredCopy() === copyThisCard) releaseCopyShortcut();
+								});
 
 								// The pin disappears once the file has landed somewhere else. A drag the
 								// user gave up on leaves it alone.

@@ -355,9 +355,9 @@ pub fn init(app: &AppHandle) {
 
                 debug!(%shortcut, "Global shortcut arrived");
 
-                // No modifier check: this shortcut is only registered while the
-                // overlay armed it, so any C arriving here is that one.
-                if shortcut.key == Code::KeyC
+                // Compared whole, not by key alone: a user may bind their own
+                // shortcut whose base key is C, and that must not copy the pin.
+                if *shortcut == pin_copy_shortcut()
                     && app
                         .try_state::<PinCopyShortcut>()
                         .is_some_and(|state| *state.0.lock().unwrap_or_else(|e| e.into_inner()))

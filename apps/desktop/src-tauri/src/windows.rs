@@ -1259,8 +1259,13 @@ impl ShowCapWindow {
             let _ = window.set_size(LogicalSize::new(monitor.width, monitor.height));
         }
 
-        if !matches!(self, Self::Camera { .. } | Self::InProgressRecording { .. })
-            && let Some(window) = self.id(app).get(app)
+        // TextPin is excluded like the other repositioning windows: it is hidden
+        // rather than destroyed, and the generic branch would show it again at
+        // its old place instead of under the cursor's display.
+        if !matches!(
+            self,
+            Self::Camera { .. } | Self::InProgressRecording { .. } | Self::TextPin { .. }
+        ) && let Some(window) = self.id(app).get(app)
         {
             if let Self::Onboarding = self {
                 let _ = window.set_ignore_cursor_events(false);
