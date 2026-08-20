@@ -136,10 +136,11 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 	// saving used to happen on every keystroke while registering waited for a
 	// confirm click, so a shortcut looked set but did nothing until the next app
 	// start. Both now happen together, and only after the system accepted it.
+	// Swallowing the error here would produce the same trap from the other side:
+	// the shortcut is registered and works, but it is gone after a restart. The
+	// caller shows the failure instead.
 	const persist = () =>
-		hotkeysStore
-			.set({ hotkeys: { ...hotkeys } as HotkeysStore["hotkeys"] })
-			.catch((error) => console.error("Failed to save shortcuts:", error));
+		hotkeysStore.set({ hotkeys: { ...hotkeys } as HotkeysStore["hotkeys"] });
 
 	const [failures, setFailures] = createSignal<
 		Partial<Record<HotkeyAction, string>>

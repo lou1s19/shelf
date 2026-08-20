@@ -1875,6 +1875,14 @@ impl ShowCapWindow {
                 {
                     let Some(state) = app.try_state::<ArcLock<App>>() else {
                         warn!("App state unavailable while creating camera window");
+                        // Leaving the guard behind would pin the panel in
+                        // `Creating` and block every later attempt to open the
+                        // camera window for the rest of the session.
+                        #[cfg(target_os = "macos")]
+                        {
+                            let panel_manager = app.state::<PanelManager>();
+                            panel_manager.force_reset(PanelWindowType::Camera).await;
+                        }
                         return Err(tauri::Error::WindowNotFound);
                     };
                     let mut state = state.write().await;

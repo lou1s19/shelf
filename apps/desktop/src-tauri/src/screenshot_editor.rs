@@ -101,6 +101,24 @@ impl<'de, R: Runtime> CommandArg<'de, R> for WindowScreenshotEditorInstance {
     }
 }
 
+/// Cancels a websocket that was started but whose instance never came to be.
+struct WsShutdownOnError(Option<CancellationToken>);
+
+impl WsShutdownOnError {
+    fn disarm(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for WsShutdownOnError {
+    fn drop(&mut self) {
+        if let Some(token) = self.0.take() {
+            tracing::warn!("Screenshot editor setup failed, shutting down its websocket");
+            token.cancel();
+        }
+    }
+}
+
 impl ScreenshotEditorInstances {
     async fn create_standalone_instance(
         app_handle: &AppHandle,
@@ -113,6 +131,10 @@ impl ScreenshotEditorInstances {
         if ws_port == 0 {
             return Err("Failed to start screenshot editor frame websocket".to_string());
         }
+        // Everything below can still fail (broken PNG, no GPU adapter). The
+        // websocket is already listening by then, so it has to be shut down on
+        // every one of those paths, not just the happy one.
+        let mut ws_guard = WsShutdownOnError(Some(ws_shutdown_token.clone()));
 
         let (data, width, height) = {
             let key = path
@@ -343,6 +365,9 @@ impl ScreenshotEditorInstances {
         });
 
         let render_shutdown_token = ws_shutdown_token.clone();
+
+        // Past every fallible step: the instance owns the websocket from here.
+        ws_guard.disarm();
 
         let source_rgba = Arc::new(data);
 

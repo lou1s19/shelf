@@ -359,20 +359,23 @@ async fn create_watch_frame_ws_inner(
         instant_subscribers,
     ));
 
+    // The caller gets the parent and the server waits on a child: cancelling a
+    // child never reaches its parent, so handing the child out would leave the
+    // server (and its listener) running for the rest of the process.
     let cancel_token = CancellationToken::new();
-    let cancel_token_child = cancel_token.child_token();
+    let server_token = cancel_token.child_token();
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
         Ok(listener) => listener,
         Err(err) => {
             tracing::error!("Failed to bind watch frame websocket listener: {err}");
-            return (0, cancel_token_child);
+            return (0, cancel_token);
         }
     };
     let port = match listener.local_addr() {
         Ok(addr) => addr.port(),
         Err(err) => {
             tracing::error!("Failed to read watch frame websocket listener address: {err}");
-            return (0, cancel_token_child);
+            return (0, cancel_token);
         }
     };
     tracing::info!("WebSocket server listening on port {}", port);
@@ -381,13 +384,13 @@ async fn create_watch_frame_ws_inner(
         let server = axum::serve(listener, router.into_make_service());
         tokio::select! {
             _ = server => {},
-            _ = cancel_token.cancelled() => {
+            _ = server_token.cancelled() => {
                 tracing::info!("WebSocket server shutting down");
             }
         }
     });
 
-    (port, cancel_token_child)
+    (port, cancel_token)
 }
 
 pub async fn create_frame_ws(frame_tx: broadcast::Sender<WSFrame>) -> (u16, CancellationToken) {
@@ -479,20 +482,23 @@ pub async fn create_frame_ws(frame_tx: broadcast::Sender<WSFrame>) -> (u16, Canc
         .route("/", get(ws_handler))
         .with_state(frame_tx);
 
+    // The caller gets the parent and the server waits on a child: cancelling a
+    // child never reaches its parent, so handing the child out would leave the
+    // server (and its listener) running for the rest of the process.
     let cancel_token = CancellationToken::new();
-    let cancel_token_child = cancel_token.child_token();
+    let server_token = cancel_token.child_token();
     let listener = match tokio::net::TcpListener::bind("127.0.0.1:0").await {
         Ok(listener) => listener,
         Err(err) => {
             tracing::error!("Failed to bind frame websocket listener: {err}");
-            return (0, cancel_token_child);
+            return (0, cancel_token);
         }
     };
     let port = match listener.local_addr() {
         Ok(addr) => addr.port(),
         Err(err) => {
             tracing::error!("Failed to read frame websocket listener address: {err}");
-            return (0, cancel_token_child);
+            return (0, cancel_token);
         }
     };
     tracing::info!("WebSocket server listening on port {}", port);
@@ -501,13 +507,13 @@ pub async fn create_frame_ws(frame_tx: broadcast::Sender<WSFrame>) -> (u16, Canc
         let server = axum::serve(listener, router.into_make_service());
         tokio::select! {
             _ = server => {},
-            _ = cancel_token.cancelled() => {
+            _ = server_token.cancelled() => {
                 tracing::info!("WebSocket server shutting down");
             }
         }
     });
 
-    (port, cancel_token_child)
+    (port, cancel_token)
 }
 
 #[cfg(test)]

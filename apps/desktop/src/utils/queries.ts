@@ -200,6 +200,15 @@ export function createOptionsQuery() {
 			}
 			initialized = true;
 		});
+	}, (error) => {
+		// Persisting stays off on purpose: the in-memory state is still the
+		// defaults here, and writing those back would overwrite settings that
+		// are on disk and fine. Logging it at least makes the dead session
+		// visible instead of silent.
+		console.error(
+			"Failed to read recording settings, they will not be saved this session:",
+			error,
+		);
 	});
 
 	createEffect(() => {

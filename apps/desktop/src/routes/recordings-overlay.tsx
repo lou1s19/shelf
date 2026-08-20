@@ -945,7 +945,9 @@ function createRecordingMutations(media: MediaEntry) {
 				throw error;
 			}
 		},
-		onSuccess() {
+		// Same as the save action: a failed copy has to leave the card, or the
+		// progress bar sits at whatever it reached and nothing ever resets it.
+		onSettled() {
 			setTimeout(() => {
 				setActionState({ type: "idle" });
 			}, 2000);
