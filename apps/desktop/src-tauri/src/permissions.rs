@@ -223,16 +223,11 @@ pub(crate) fn sync_macos_dock_visibility(app: &tauri::AppHandle) {
         .flatten()
         .is_some_and(|settings| settings.hide_dock_icon);
 
-    let has_visible_panel_window = app.webview_windows().iter().any(|(label, window)| {
-        CapWindowId::from_str(label)
-            .map(|id| !id.activates_dock() && window.is_visible().unwrap_or(false))
-            .unwrap_or(false)
-    });
-
-    if has_visible_panel_window && should_hide_dock {
-        return;
-    }
-
+    // No panel-window guard here on purpose: panels already run under the
+    // Accessory policy that `prepare_macos_panel_window` sets, so applying the
+    // hidden state while one is visible changes nothing for them. Bailing out
+    // whenever a panel happened to be on screen swallowed the `hide_dock_icon`
+    // setting instead of honouring it.
     let has_visible_dock_window = app.webview_windows().iter().any(|(label, window)| {
         CapWindowId::from_str(label)
             .map(|window_id| window_id.activates_dock() && window.is_visible().unwrap_or(false))

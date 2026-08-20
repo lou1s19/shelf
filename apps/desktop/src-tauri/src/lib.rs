@@ -5187,15 +5187,10 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                                 restore_main_and_target_select_windows(app);
 
                                 restore_camera_window(app);
-
-                                #[cfg(target_os = "macos")]
-                                return;
                             }
                             CapWindowId::ModeSelect => {
                                 restore_main_and_target_select_windows(app);
                                 restore_camera_window(app);
-                                #[cfg(target_os = "macos")]
-                                return;
                             }
                             CapWindowId::TargetSelectOverlay { display_id } => {
                                 if let Some(focus_manager) =
