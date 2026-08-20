@@ -21,6 +21,24 @@ gestalterisch nochmal ansehen.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
 
+## 2026-08-20 (Dock-Icon ließ sich nicht ausschalten)
+
+Der Schalter "Always show dock icon" hatte keine Wirkung: Icon aus, Einstellungen
+zu, Icon blieb trotzdem im Dock, bis die App neu startete.
+
+- `lib.rs`: Der `Destroyed`-Zweig für `Settings` und `ModeSelect` sprang auf macOS
+  mit `return` heraus, bevor `sync_macos_dock_visibility` am Ende des Arms lief.
+  Das `return` stammt aus b1be0164c, als danach noch Reopen-Logik folgte. Heute
+  steht dort nur noch die Dock-Synchronisierung, also war es toter Code mit
+  Nebenwirkung. Entfernt.
+- `permissions.rs`: Zweite Bremse in `sync_macos_dock_visibility`. Der Guard
+  `has_visible_panel_window && should_hide_dock` brach genau dann ab, wenn
+  ausgeblendet werden sollte. Panels laufen ohnehin unter der Accessory-Policy,
+  die `prepare_macos_panel_window` setzt, also ändert das Ausblenden für sie
+  nichts. Guard entfernt.
+- Geprüft: `cargo check` sauber, Codex-Gegencheck ohne Funde. Branch
+  `fix/dock-icon-hide`, noch nicht nach main gemerged, wartet auf Handtest.
+
 ## 2026-08-19 (Kürzel wurden gespeichert, aber nicht registriert)
 
 „Area screenshot to text" tat beim Drücken des Kürzels nichts. Der Eintrag
