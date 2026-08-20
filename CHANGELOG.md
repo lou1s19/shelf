@@ -31,10 +31,11 @@ schwarz auf dunklem Grund, also unsichtbar. Dazu Geräteauswahl im Menü, die do
 nicht hingehört.
 
 - **Neues Menüleisten-Symbol, eins pro Modus.** Gezeichnet von
-  `apps/desktop/src-tauri/icons/make-tray-icons.py`, gleiche Handschrift wie das
-  App-Icon: eine Ablage-Linie bleibt konstant, darauf steht, was gerade gilt.
-  Studio zwei Karten, Instant ein Blitz, Screenshot ein Rahmen, Aufnahme ein
-  gefüllter Punkt. Die Linux-SVGs haben dieselbe Geometrie bekommen.
+  `apps/desktop/src-tauri/icons/make-tray-icons.py`: ein Bildschirm bleibt
+  konstant, was darin sitzt, sagt den Modus. Studio leer, Instant ein Blitz,
+  Screenshot ein gefüllter Block, beim Aufnehmen ein Punkt. Ausgewählt aus zwölf
+  Entwürfen, die vorher als Kontaktbogen in echter Menüleistengröße nebeneinander
+  lagen, hell und dunkel. Die Linux-SVGs haben dieselbe Geometrie bekommen.
 - **Neues `tray_icons.rs`.** Symbole kommen jetzt zur Laufzeit aus SF Symbols und
   werden in der Farbe der aktuellen Darstellung gezeichnet, hell wie dunkel.
   Zwei Fallstricke dabei: `NSGraphicsContext` liefert `nil`, wenn die Bitmap

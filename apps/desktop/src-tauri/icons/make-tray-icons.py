@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Draws Shelf's menu bar icons: one shelf, a different thing standing on it.
+"""Draws Shelf's menu bar icons: one screen, a different thing on it.
 
-The shelf line is the constant, so every mode is recognisably the same app,
-and what stands on it says which mode is active:
+The screen is the constant, so every mode is recognisably the same app, and
+what sits inside it says which mode is active:
 
-    studio      two cards side by side
+    studio      nothing, the plain screen
     instant     a bolt
-    screenshot  an open frame
+    screenshot  a filled block, the captured region
     recording   a filled dot
 
 macOS scales these to 18 points high and, because the tray icon is a template
@@ -27,10 +27,6 @@ import zlib
 
 SIZE = 128
 SAMPLES = 4  # per axis
-
-# The shelf itself, shared by every icon.
-BAR = (18.0, 98.0, 110.0, 107.0, 4.5)
-BAR_TOP = 98.0
 
 
 def rounded_rect(x0, y0, x1, y1, r):
@@ -138,30 +134,22 @@ def write_png(path, rows):
         fh.write(png)
 
 
-def shelf():
-    return rounded_rect(*BAR)
+def screen():
+    """The display, its neck and its base. Shared by every icon."""
+    return [
+        rounded_frame(20.0, 22.0, 108.0, 84.0, 13.0, 10.0),
+        rounded_rect(50.0, 86.0, 78.0, 94.0, 3.0),
+        rounded_rect(32.0, 96.0, 96.0, 105.0, 4.5),
+    ]
 
 
 ICONS = {
-    # Two cards, the taller one first, the same mark the app icon uses.
-    "tray-default-icon-studio.png": lambda: [
-        shelf(),
-        rounded_rect(36.0, 38.0, 58.0, BAR_TOP, 6.0),
-        rounded_rect(70.0, 58.0, 92.0, BAR_TOP, 6.0),
-    ],
-    "tray-default-icon-instant.png": lambda: [
-        shelf(),
-        bolt(38.0, 26.0, 90.0, BAR_TOP),
-    ],
-    "tray-default-icon-screenshot.png": lambda: [
-        shelf(),
-        rounded_frame(39.0, 45.0, 89.0, BAR_TOP, 9.0, 10.0),
-    ],
+    "tray-default-icon-studio.png": lambda: screen(),
+    "tray-default-icon-instant.png": lambda: screen() + [bolt(50.0, 32.0, 78.0, 74.0)],
+    "tray-default-icon-screenshot.png": lambda: screen()
+    + [rounded_rect(40.0, 40.0, 88.0, 66.0, 5.0)],
     # While recording the icon is the state, not the action: a plain dot.
-    "tray-stop-icon.png": lambda: [
-        shelf(),
-        circle(64.0, 63.0, 25.0),
-    ],
+    "tray-stop-icon.png": lambda: screen() + [circle(64.0, 53.0, 15.0)],
 }
 
 
@@ -171,7 +159,7 @@ def main():
         write_png(os.path.join(out_dir, name), render(build()))
         print("wrote", name)
 
-    # The default icon is the studio mark; Windows uses it for every mode.
+    # The default icon is the plain screen; Windows uses it for every mode.
     default = render(ICONS["tray-default-icon-studio.png"]())
     write_png(os.path.join(out_dir, "tray-default-icon.png"), default)
     print("wrote tray-default-icon.png")
