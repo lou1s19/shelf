@@ -89,10 +89,10 @@ const WELCOME_LINES: &[&[(&str, &str)]] = &[
         "  Record, edit, and share screen recordings from the command line.",
     )],
     &[],
-    &[(ANSI_BLUE, "  cap record start --screen <id> --detach")],
+    &[(ANSI_BLUE, "  shelf record start --screen <id> --detach")],
     &[(
         ANSI_MUTED,
-        "  cap targets     cap doctor     cap guide --json     cap --help",
+        "  shelf targets   shelf doctor   shelf guide --json   shelf --help",
     )],
 ];
 
@@ -110,16 +110,16 @@ ENVIRONMENT
   CAP_NO_MODIFY_PATH  Set to skip editing shell profiles during `shelf desktop install-cli`.
 
 TYPICAL AGENT WORKFLOW
-  cap doctor --json                          # verify permissions & capture readiness
-  cap targets --json                         # discover screens/windows/cameras/mics
-  cap record start --screen <id> --json --detach  # start in background -> {recordingId, pid, path}
-  cap record stop --id <recordingId> --json  # finalize the .cap recording
-  cap project validate <path.cap> --json     # confirm the recording is complete
-  cap export <path.cap> --output out.mp4 --json";
+  shelf doctor --json                          # verify permissions & capture readiness
+  shelf targets --json                         # discover screens/windows/cameras/mics
+  shelf record start --screen <id> --json --detach  # start in background -> {recordingId, pid, path}
+  shelf record stop --id <recordingId> --json  # finalize the .cap recording
+  shelf project validate <path.cap> --json     # confirm the recording is complete
+  shelf export <path.cap> --output out.mp4 --json";
 
 #[derive(Parser)]
 #[command(
-    name = "cap",
+    name = "shelf",
     version,
     about = "Shelf screen recording from the command line",
     long_about = "Shelf screen recording from the command line.\n\nDesigned to be driven by automation and AI agents: add --json to any command for \
@@ -542,7 +542,7 @@ async fn run(cli: Cli) -> Result<(), String> {
 fn print_welcome(json: bool) -> Result<(), String> {
     if json {
         return write_json(&serde_json::json!({
-            "name": "cap",
+            "name": "shelf",
             "about": "Shelf screen recording from the command line",
             "commands": ["record", "targets", "doctor", "guide", "export"],
         }));

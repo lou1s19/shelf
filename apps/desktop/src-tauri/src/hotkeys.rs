@@ -78,6 +78,10 @@ pub enum HotkeyAction {
 }
 
 impl Hotkey {
+    pub fn shortcut(&self) -> Shortcut {
+        Shortcut::from(*self)
+    }
+
     /// The same shortcut written the way menus spell it, e.g. `Ctrl+Shift+Digit1`.
     /// Menu rows use this to show what is actually registered; a key name the
     /// menu layer cannot parse is dropped by the caller rather than guessed at.

@@ -19,6 +19,7 @@ use tauri::{
     menu::{Menu, MenuItem},
     tray::{TrayIcon, TrayIconBuilder},
 };
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 use tauri_specta::Event;
 
 #[cfg(target_os = "linux")]
@@ -228,11 +229,22 @@ fn accelerator_for(
     hotkeys.get(&action).map(Hotkey::accelerator)
 }
 
+/// Only shortcuts the system actually holds. A stored shortcut whose
+/// registration was refused (taken by another app, say) would otherwise be
+/// advertised here and do nothing when pressed.
 fn stored_hotkeys(app: &AppHandle) -> HashMap<HotkeyAction, Hotkey> {
+    let global_shortcut = app.global_shortcut();
+
     HotkeysStore::get(app)
         .ok()
         .flatten()
-        .map(|store| store.entries())
+        .map(|store| {
+            store
+                .entries()
+                .into_iter()
+                .filter(|(_, hotkey)| global_shortcut.is_registered(hotkey.shortcut()))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -504,11 +516,12 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let menu = Menu::new(app)?;
 
-    // 1. What the app is doing right now.
+    // The one action the menu exists for sits under a line that says what the
+    // app is doing right now; everything below is grouped by how often it is
+    // needed.
     menu.append(status_row(app, is_recording, current_mode, settings.target.as_ref())?.as_ref())?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
 
-    // 2. The one action the menu exists for.
     let (primary_label, primary_symbol, primary_tint) = if is_recording {
         ("Stop Recording", symbol::STOP, Tint::Red)
     } else if is_screenshot_mode {
@@ -529,12 +542,10 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .as_ref(),
     )?;
 
-    // 3. Capture something specific, and the mode those entries feed into.
     menu.append(&create_record_screen_submenu(app, &hotkeys)?)?;
     menu.append(&create_screenshot_submenu(app, &hotkeys)?)?;
     menu.append(&create_mode_submenu(app, current_mode, &hotkeys)?)?;
 
-    // 4. Everything already captured.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(
         row(
@@ -573,7 +584,6 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .as_ref(),
     )?;
 
-    // 5. The app itself.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(
         row(

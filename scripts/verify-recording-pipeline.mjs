@@ -36,28 +36,28 @@ const desktopAppPath = process.env.CAP_VERIFY_DESKTOP_APP_PATH
 const desktopBundleId =
 	process.env.CAP_VERIFY_DESKTOP_BUNDLE_ID ||
 	(desktopAppPath?.endsWith("Cap - Development.app")
-		? "so.cap.desktop.dev"
-		: "so.cap.desktop");
+		? "de.shelf.desktop.dev"
+		: "de.shelf.desktop");
 const signDesktopApp = process.env.CAP_VERIFY_SIGN_DESKTOP !== "0";
 const desktopEntitlementsPath = process.env.CAP_VERIFY_DESKTOP_ENTITLEMENTS
 	? path.resolve(process.env.CAP_VERIFY_DESKTOP_ENTITLEMENTS)
 	: path.join(root, "apps", "desktop", "src-tauri", "Entitlements.plist");
-const desktopLogDirs = ["so.cap.desktop.dev", "so.cap.desktop"].map((name) =>
-	path.join(os.homedir(), "Library", "Logs", name),
+const desktopLogDirs = ["de.shelf.desktop.dev", "de.shelf.desktop"].map(
+	(name) => path.join(os.homedir(), "Library", "Logs", name),
 );
 const desktopRecordingDirs = [
 	path.join(
 		os.homedir(),
 		"Library",
 		"Application Support",
-		"so.cap.desktop.dev",
+		"de.shelf.desktop.dev",
 		"recordings",
 	),
 	path.join(
 		os.homedir(),
 		"Library",
 		"Application Support",
-		"so.cap.desktop",
+		"de.shelf.desktop",
 		"recordings",
 	),
 ].filter((value, index, values) => values.indexOf(value) === index);
@@ -511,9 +511,9 @@ async function listMedia(dir) {
 async function snapshotDesktopLogs() {
 	const date = new Date().toISOString().slice(0, 10);
 	const paths = desktopLogDirs.flatMap((desktopLogDir) => [
-		path.join(desktopLogDir, `cap-desktop.log.${date}`),
-		path.join(desktopLogDir, `cap-desktop-errors.log.${date}`),
-		path.join(desktopLogDir, "cap-desktop-panics.log"),
+		path.join(desktopLogDir, `shelf.log.${date}`),
+		path.join(desktopLogDir, `shelf-errors.log.${date}`),
+		path.join(desktopLogDir, "panics.log"),
 	]);
 	const snapshot = new Map();
 	for (const filePath of paths) {
@@ -650,7 +650,7 @@ async function signDesktopAppIfNeeded() {
 
 async function openDeepLink(name, action) {
 	const value = JSON.stringify(action);
-	const url = `cap-desktop://action?value=${encodeURIComponent(value)}`;
+	const url = `shelf://action?value=${encodeURIComponent(value)}`;
 	if (desktopExecPath) {
 		await runCommand(name, desktopExecPath, [url]);
 		return;

@@ -246,17 +246,26 @@ function ActiveDevices(props: {
 		onError: (error) => console.error("Failed to set microphone:", error),
 	}));
 
-	const cameraValue = () => {
+	const DISCONNECTED = "__disconnected__";
+
+	const selectedCamera = () => {
 		const selected = rawOptions.cameraID;
-		if (!selected) return NO_DEVICE;
-		const match = props.cameras.find((camera) =>
+		if (!selected) return undefined;
+		return props.cameras.find((camera) =>
 			"ModelID" in selected
 				? camera.model_id === selected.ModelID
 				: camera.device_id === selected.DeviceID,
 		);
-		// A camera that is selected but unplugged keeps its slot rather than
-		// silently reading as "None".
-		return match?.device_id ?? NO_DEVICE;
+	};
+
+	// A camera that is selected but unplugged keeps its slot: reading as "None"
+	// would suggest the selection is gone, and it is not.
+	const cameraDisconnected = () =>
+		!!rawOptions.cameraID && selectedCamera() === undefined;
+
+	const cameraValue = () => {
+		if (cameraDisconnected()) return DISCONNECTED;
+		return selectedCamera()?.device_id ?? NO_DEVICE;
 	};
 
 	const cameraOptions = () => [
@@ -265,6 +274,9 @@ function ActiveDevices(props: {
 			text: camera.display_name,
 			value: camera.device_id,
 		})),
+		...(cameraDisconnected()
+			? [{ text: "Selected camera, not connected", value: DISCONNECTED }]
+			: []),
 	];
 
 	const microphoneOptions = () => [
@@ -273,6 +285,8 @@ function ActiveDevices(props: {
 	];
 
 	const selectCamera = (deviceId: string) => {
+		// Picking the placeholder again changes nothing; the device is not there.
+		if (deviceId === DISCONNECTED) return;
 		if (deviceId === NO_DEVICE) {
 			setCamera.mutate({ model: null });
 			return;

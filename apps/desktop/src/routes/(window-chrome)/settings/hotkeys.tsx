@@ -146,21 +146,43 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 		Partial<Record<HotkeyAction, string>>
 	>({});
 
-	const apply = async (action: HotkeyAction, binding: Hotkey | null) => {
-		const previous = hotkeys[action];
+	// `previous` is passed in, not read from the store: both callers write the
+	// new binding into the store before calling, so reading it here would find
+	// the new value and the rollback would restore nothing.
+	const apply = async (
+		action: HotkeyAction,
+		binding: Hotkey | null,
+		previous: Hotkey | undefined,
+	) => {
+		const rollback = (message: string) => {
+			// biome-ignore lint/style/noNonNullAssertion: store
+			setHotkeys(action, previous ?? (undefined! as Hotkey));
+			setFailures((prev) => ({ ...prev, [action]: message }));
+		};
+
 		try {
 			await commands.setHotkey(action, binding);
-			setFailures((prev) => {
-				const { [action]: _removed, ...rest } = prev;
-				return rest;
-			});
+		} catch (error) {
+			rollback(`The system refused this shortcut: ${error}`);
+			return;
+		}
+
+		setFailures((prev) => {
+			const { [action]: _removed, ...rest } = prev;
+			return rest;
+		});
+
+		try {
 			await persist();
 		} catch (error) {
-			setHotkeys(action, previous);
-			setFailures((prev) => ({
-				...prev,
-				[action]: `The system refused this shortcut: ${error}`,
-			}));
+			// Registered but not saved would work until the next start and then
+			// be gone, so the registration goes back with it.
+			await commands
+				.setHotkey(action, previous ?? null)
+				.catch((undoError) =>
+					console.error("Failed to undo the shortcut:", undoError),
+				);
+			rollback(`The shortcut could not be saved: ${error}`);
 		}
 	};
 
@@ -191,11 +213,12 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 		if (l) {
 			e.preventDefault();
 
+			const previous = hotkeys[l.action];
 			batch(() => {
 				setHotkeys(l.action, data);
 				setListening();
 			});
-			void apply(l.action, data);
+			void apply(l.action, data, previous);
 		}
 	});
 
@@ -290,12 +313,13 @@ function Inner(props: { initialStore: HotkeysStore | null }) {
 																	type="button"
 																	onClick={(e) => {
 																		e.stopPropagation();
+																		const previous = hotkeys[action()];
 																		batch(() => {
 																			setListening();
 																			// biome-ignore lint/style/noNonNullAssertion: store
 																			setHotkeys(action(), undefined!);
 																		});
-																		void apply(action(), null);
+																		void apply(action(), null, previous);
 																	}}
 																>
 																	<IconCapCircleX class="text-red-500 transition-colors hover:text-red-700 size-5" />
