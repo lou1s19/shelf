@@ -1,4 +1,4 @@
-//! Shared logic for installing the `cap` CLI shim onto the user's `PATH`.
+//! Shared logic for installing the `shelf` CLI shim onto the user's `PATH`.
 //!
 //! Used by both the desktop app (via Tauri commands) and the CLI itself
 //! (`cap desktop status|install-cli|uninstall-cli`) so the two surfaces never
@@ -83,7 +83,8 @@ fn shim_path() -> Result<PathBuf, String> {
 }
 
 fn target_path() -> Result<PathBuf, String> {
-    let exe = env::current_exe().map_err(|e| format!("Could not locate Cap executable: {e}"))?;
+    let exe =
+        env::current_exe().map_err(|e| format!("Could not locate the Shelf executable: {e}"))?;
     // When `cap` runs through the installed shim (a symlink), macOS `current_exe()` returns the
     // symlink path; resolve it to the real binary so the sibling `cap-cli` resolves to the bundled
     // one rather than a non-existent path next to the shim (which made status() report installed:false
@@ -91,7 +92,7 @@ fn target_path() -> Result<PathBuf, String> {
     let exe = resolve_path_for_target_lookup(exe);
     let dir = exe
         .parent()
-        .ok_or_else(|| "Could not locate Cap executable directory".to_string())?;
+        .ok_or_else(|| "Could not locate the Shelf executable directory".to_string())?;
 
     for candidate in cli_binary_candidates(dir) {
         if candidate.exists() {
@@ -409,7 +410,7 @@ pub fn status() -> Result<CliInstallStatus, String> {
     let installed = target_exists && shim_points_to(&shim_path, &target_path)?;
     let conflict = if shim_exists && !installed && !shim_is_cap_managed(&shim_path) {
         Some(format!(
-            "{} already exists and is not managed by Cap",
+            "{} already exists and was not installed by Shelf",
             display_path(&shim_path)
         ))
     } else if !target_exists {
@@ -473,7 +474,7 @@ pub fn install() -> Result<CliInstallStatus, String> {
         // install, or by the web installer); only refuse to clobber a genuinely foreign file.
         if !shim_points_to(&shim_path, &target_path)? && !shim_is_cap_managed(&shim_path) {
             return Err(format!(
-                "{} already exists and is not managed by Cap",
+                "{} already exists and was not installed by Shelf",
                 display_path(&shim_path)
             ));
         }
@@ -620,7 +621,7 @@ fn append_path_export(profile: &Path, install_dir: &str) -> bool {
         .create(true)
         .append(true)
         .open(profile)
-        .and_then(|mut file| writeln!(file, "\n# Added by Cap\n{line}"))
+        .and_then(|mut file| writeln!(file, "\n# Added by Shelf\n{line}"))
         .is_ok()
 }
 

@@ -134,7 +134,7 @@ fn install_panic_hook(logs_dir: std::path::PathBuf) {
             "panic"
         );
         eprintln!(
-            "[cap-desktop panic] thread '{thread_name}' at {location}: {message}\nbacktrace:\n{backtrace}"
+            "[shelf panic] thread '{thread_name}' at {location}: {message}\nbacktrace:\n{backtrace}"
         );
         prev(info);
     }));

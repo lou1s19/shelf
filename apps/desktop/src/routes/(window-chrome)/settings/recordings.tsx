@@ -710,10 +710,10 @@ function RecordingSettingsInner(props: {
 
 	const isManagedWindowsApp = (window: CaptureWindow) => {
 		const bundle = window.bundle_identifier?.toLowerCase() ?? "";
-		if (bundle.includes("so.cap.desktop")) {
+		if (bundle.includes("de.shelf.desktop")) {
 			return true;
 		}
-		return window.owner_name.toLowerCase().includes("cap");
+		return window.owner_name.toLowerCase().includes("shelf");
 	};
 
 	const isWindowAvailable = (window: CaptureWindow) => {

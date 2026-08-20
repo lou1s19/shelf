@@ -70,6 +70,6 @@ Einstellungen und Aufnahmen liegen unter
 
 ## Lizenz
 
-AGPLv3, wie das Original. Teile stehen unter MIT, siehe `LICENSE`. Wer die App
-weitergibt, muss den Quellcode mitliefern. Das Original und seine Doku sind unter
-`README.cap.md` erhalten.
+AGPLv3, wie das Original. Teile stehen unter MIT, siehe `LICENSE` und
+`licenses/`. Die Copyright-Zeilen von Cap Software bleiben dort stehen, das
+verlangt die Lizenz. Wer die App weitergibt, muss den Quellcode mitliefern.

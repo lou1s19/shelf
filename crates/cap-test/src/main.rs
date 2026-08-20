@@ -17,7 +17,7 @@ use results::{ResultsSummary, TestResults};
 
 #[derive(Parser)]
 #[command(name = "cap-test")]
-#[command(about = "Unified testing harness for Cap", long_about = None)]
+#[command(about = "Unified testing harness for Shelf", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

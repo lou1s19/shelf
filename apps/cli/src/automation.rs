@@ -14,7 +14,7 @@ use cap_automation::{
 use cap_recording::screen_capture::ScreenCaptureTarget;
 use serde_json::Value;
 
-const DESKTOP_BUNDLE_IDS: [&str; 2] = ["so.cap.desktop", "so.cap.desktop.dev"];
+const DESKTOP_BUNDLE_IDS: [&str; 2] = ["de.shelf.desktop", "de.shelf.desktop.dev"];
 
 const WEBHOOK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 const COMMAND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);

@@ -89,14 +89,14 @@ pub fn get_recordings_dir() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
     for app_name in ["Cap - Development", "Cap"] {
-        if let Some(proj_dirs) = ProjectDirs::from("so", "cap", app_name) {
+        if let Some(proj_dirs) = ProjectDirs::from("de", "shelf", app_name) {
             candidates.push(proj_dirs.data_dir().join("recordings"));
         }
     }
 
     if let Some(base_dirs) = BaseDirs::new() {
         let data_dir = base_dirs.data_dir();
-        for identifier in ["so.cap.desktop.dev", "so.cap.desktop"] {
+        for identifier in ["de.shelf.desktop.dev", "de.shelf.desktop"] {
             candidates.push(data_dir.join(identifier).join("recordings"));
         }
     }

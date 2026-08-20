@@ -42,7 +42,7 @@ pub fn set_window_opacity(window: tauri::Window, opacity: f64) {
 }
 
 const TAURI_VIBRANCY_VIEW_TAG: isize = 91376254;
-const LIQUID_GLASS_IDENTIFIER: &str = "so.cap.liquid-glass-background";
+const LIQUID_GLASS_IDENTIFIER: &str = "de.shelf.liquid-glass-background";
 const NS_GLASS_EFFECT_VIEW_STYLE_REGULAR: isize = 0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]

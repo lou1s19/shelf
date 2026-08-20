@@ -386,15 +386,15 @@ pub fn setup<R: Runtime>(window: Window<R>, controls_inset: LogicalPosition<f64>
         fn get_or_register_delegate_class<R: Runtime>() -> &'static Class {
             static CLASS: std::sync::OnceLock<&'static Class> = std::sync::OnceLock::new();
             CLASS.get_or_init(|| {
-                if let Some(existing) = Class::get("CapWindowDelegate") {
+                if let Some(existing) = Class::get("ShelfWindowDelegate") {
                     return existing;
                 }
 
-                let mut decl = match ClassDecl::new("CapWindowDelegate", class!(NSObject)) {
+                let mut decl = match ClassDecl::new("ShelfWindowDelegate", class!(NSObject)) {
                     Some(decl) => decl,
                     None => {
-                        return Class::get("CapWindowDelegate")
-                            .expect("CapWindowDelegate should exist if already registered");
+                        return Class::get("ShelfWindowDelegate")
+                            .expect("ShelfWindowDelegate should exist if already registered");
                     }
                 };
 
