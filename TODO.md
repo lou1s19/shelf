@@ -74,10 +74,11 @@ Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
    plus Signierschlüssel, oder die Funktion ganz aus den Einstellungen nehmen.
 
 5. **Namen im Paketinneren.** Die mitgelieferten Hilfsprogramme heißen weiter
-   `cap-cli`, `cap-exporter`, `cap-muxer`, die Projektendung ist `.cap` und das
-   Deep-Link-Schema `cap-desktop`. Im Betrieb sichtbar ist davon nichts. Das
-   Umbenennen der Endung berührt viele Stellen und braucht eine Migration für
-   bestehende Aufnahmen.
+   `cap-cli`, `cap-exporter`, `cap-muxer`, die Rust-Crates `cap-*`, die
+   npm-Pakete `@cap/*`, und die Projektendung ist `.cap`. Im Betrieb sichtbar
+   ist davon nichts, das Deep-Link-Schema heißt seit 2026-08-20 `shelf://`.
+   Das Umbenennen der Endung berührt viele Stellen und braucht eine Migration
+   für bestehende Aufnahmen.
 
 6. **Sprachmodelle für die Untertitel** kommen von
    `github.com/CapSoftware/transcription-models`. Funktioniert, hängt aber an

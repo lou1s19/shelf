@@ -5,21 +5,63 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 ## Offen
 
 Die vollständige Liste mit Begründungen steht in `TODO.md`. Kurz:
-Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg, Tray-Symbol
-gestalterisch nochmal ansehen.
+Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
 
-
-- **Deep-Link-Schema** heißt weiter `cap-desktop`. Kann jetzt umbenannt werden,
-  die Anmeldung über cap.so hängt nicht mehr dran.
 - **Update-Weg fehlt.** Der Updater ist ein Platzhalter, neue Versionen werden
   aus dem Quellcode gebaut.
-- **Sidecar-Binaries** heißen intern noch `cap-cli`, `cap-exporter`, `cap-muxer`.
-  Nicht sichtbar im normalen Betrieb, aber im App-Paket zu finden.
+- **Rust-Crates heißen weiter `cap-*`**, die npm-Pakete `@cap/*`, die
+  Sidecar-Binaries `cap-cli`, `cap-exporter`, `cap-muxer`. Rein intern, aber im
+  App-Paket zu finden. Eine Umbenennung ist mechanisch, aber breit.
 - **Spracherkennungs-Modelle** werden von `github.com/CapSoftware/transcription-models`
   geladen. Funktioniert, hängt aber an Caps Repo.
 - Die Dateiendung von Projekten ist weiter `.cap`.
 - Der Absturz-Fix umgeht einen Fehler in Tauri, statt ihn zu beheben. Wenn Tauri
   angehoben wird, prüfen, ob `vendor/tauri-runtime-wry` wieder wegfallen kann.
+- Aus dem Fehler-Audit noch offen, bewusst nicht angefasst, weil größere
+  Umbauten: der Schreib-Lock im Screenshot-Editor wird über die ganze
+  Erzeugung gehalten (`screenshot_editor.rs:494`), die App-Schreibsperre über
+  den Main-Thread-Sprung beim Kamerafenster (`windows.rs:1880`), und
+  Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
+  und geschrieben (`recording_settings.rs:51`).
+
+## 2026-08-20 (Tray-Menü, Geräte in die Einstellungen, Cap-Reste raus)
+
+Das aufgeklappte Menü sah tot aus: nur Text, und die beiden PNG-Symbole waren
+schwarz auf dunklem Grund, also unsichtbar. Dazu Geräteauswahl im Menü, die dort
+nicht hingehört.
+
+- **Neues `tray_icons.rs`.** Symbole kommen jetzt zur Laufzeit aus SF Symbols und
+  werden in der Farbe der aktuellen Darstellung gezeichnet, hell wie dunkel.
+  Zwei Fallstricke dabei: `NSGraphicsContext` liefert `nil`, wenn die Bitmap
+  nicht vormultipliziertes Alpha hat (deshalb wird beim Auslesen zurückgerechnet),
+  und `muda` setzt Menübilder nicht als Template, weshalb die Farbe selbst
+  bestimmt werden muss. Beim Systemwechsel hell/dunkel wird das Menü neu gebaut.
+- **Statuszeile oben**: "Ready · Studio, Area", "Recording", "Permissions needed".
+  Die Berechtigungsabfrage läuft nur, wenn gerade nicht aufgenommen wird.
+- **Kürzel stehen an den Zeilen**, gelesen aus dem Hotkey-Store, also immer das,
+  was wirklich registriert ist. Ein Kürzel, das die Menü-Schicht nicht schreiben
+  kann, fällt weg, statt das ganze Menü scheitern zu lassen.
+- **Modus** ist ein eigenes Untermenü mit dem aktuellen Modus im Titel.
+- **Kamera, Mikrofon, System-Audio raus aus dem Tray**, jetzt in
+  Einstellungen › Geräte unter "In use".
+- **Fehlerfunde behoben** (Details in den Commits): Websocket-Server liefen nach
+  jedem Editor-Fenster weiter, weil ein Kind-Token statt des Eltern-Tokens
+  zurückgegeben wurde; das Kamerafenster konnte sich dauerhaft selbst sperren;
+  ein leerer Block versteckte bei jedem Fokuswechsel die Ziel-Auswahl; Cmd+C
+  blieb systemweit gekapert, wenn das Overlay zerstört wurde; Hotkey-Fehler
+  waren unsichtbar; eine fehlgeschlagene Kopie hing für immer im Fortschritt.
+- **Cap-Reste**: `shelf recordings` und `shelf automations` suchten noch unter
+  `so.cap.desktop` und fanden deshalb nichts; der Fensterfilter kannte die eigene
+  App nicht mehr; `FrameConfiguration::default()` brannte weiter "Cap.so" in
+  Exporte. Deep-Link heißt jetzt `shelf://`. CLI-README neu geschrieben, Caps
+  Cloud-Skill und die ungenutzte `sentry`-Abhängigkeit entfernt.
+- **Caps Cloud-Pakete gelöscht** (database, web-backend, s3, sdk-*, utils, ui und
+  weitere, ~300 Dateien). Vorher einzeln geprüft: nur `@cap/ui-solid` wird von der
+  Desktop-App importiert. Nebenwirkung: `tailwindcss` und `tailwind-scrollbar`
+  mussten in `apps/desktop` selbst deklariert werden.
+- Geprüft: `cargo check`, `cargo fmt`, `pnpm typecheck`, `cargo test -p
+  cap-recording -p cap-cli-install`, Debug-Build installiert und Menü,
+  Untermenü und die neue Geräte-Seite am laufenden Programm angesehen.
 
 ## 2026-08-20 (Dock-Icon ließ sich nicht ausschalten)
 

@@ -26,11 +26,17 @@ Remotes:
   Overlays. Kein `CapWindowId::Main` wieder einführen: an dem Fenster hingen der
   Prewarm, das Beenden-Verhalten und die Geräteauswahl (siehe `CHANGELOG.md`).
   Geteilte Aufnahme-Bausteine liegen unter `apps/desktop/src/components/recording/`.
-- **Im Repo liegt nur noch die Desktop-App.** Caps Website, Mobile-App,
-  Chrome-Erweiterung, Discord-Bot, Media-Server und Cloud-Infrastruktur sind
+- **Im Repo liegt nur noch die Desktop-App und `packages/ui-solid`.** Caps
+  Website, Mobile-App, Chrome-Erweiterung, Discord-Bot, Media-Server und seit
+  2026-08-20 auch die Cloud-Pakete (Datenbank, Web-Backend, S3, SDKs) sind
   gelöscht. `git log` hat sie noch, falls du etwas nachschlagen willst.
-- **Noch offen:** eigener Update-Weg, Deep-Link-Schema heißt weiter `cap-desktop`,
-  Sidecar-Binaries heißen intern noch `cap-*`, Projektendung ist weiter `.cap`.
+- **Noch offen:** eigener Update-Weg, Sidecar-Binaries und Crates heißen intern
+  noch `cap-*`, Projektendung ist weiter `.cap`. Das Deep-Link-Schema ist seit
+  2026-08-20 `shelf://`, die Bundle-ID `de.shelf.desktop`.
+- **Tray-Menü:** Die Symbole im Menü werden zur Laufzeit aus SF Symbols
+  gezeichnet (`apps/desktop/src-tauri/src/tray_icons.rs`), nicht als PNG
+  mitgeliefert. Grund steht im Modulkopf. Keine Geräteauswahl im Tray, die
+  wohnt in Einstellungen › Geräte.
 
 ## Gepatchte Abhängigkeiten
 
@@ -60,8 +66,8 @@ cargo build --no-default-features -p cap-desktop   # nur die Desktop-App
 ```
 
 Die Dev-App speichert ihren Zustand unter
-`~/Library/Application Support/so.cap.desktop.dev/store`, ihre Logs unter
-`~/Library/Logs/so.cap.desktop/`. Panics landen zusätzlich in `panics.log`.
+`~/Library/Application Support/de.shelf.desktop.dev/store`, ihre Logs unter
+`~/Library/Logs/de.shelf.desktop/`. Panics landen zusätzlich in `panics.log`.
 
 Die Screenshot-Tastenkürzel im Dev-Store: `Ctrl+Shift+1` ganzer Bildschirm,
 `Ctrl+Shift+2` Bereich.
