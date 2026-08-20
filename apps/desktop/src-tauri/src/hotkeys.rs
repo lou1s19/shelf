@@ -77,6 +77,29 @@ pub enum HotkeyAction {
     Other,
 }
 
+impl Hotkey {
+    /// The same shortcut written the way menus spell it, e.g. `Ctrl+Shift+Digit1`.
+    /// Menu rows use this to show what is actually registered; a key name the
+    /// menu layer cannot parse is dropped by the caller rather than guessed at.
+    pub fn accelerator(&self) -> String {
+        let mut parts = Vec::with_capacity(5);
+        if self.ctrl {
+            parts.push("Ctrl".to_string());
+        }
+        if self.alt {
+            parts.push("Alt".to_string());
+        }
+        if self.shift {
+            parts.push("Shift".to_string());
+        }
+        if self.meta {
+            parts.push("Cmd".to_string());
+        }
+        parts.push(format!("{:?}", self.code));
+        parts.join("+")
+    }
+}
+
 #[derive(Serialize, Deserialize, Type, Default)]
 pub struct HotkeysStore {
     hotkeys: HashMap<HotkeyAction, Hotkey>,
@@ -91,6 +114,10 @@ const RETIRED_RECORDING_ACTIONS: [HotkeyAction; 3] = [
 ];
 
 impl HotkeysStore {
+    pub fn entries(&self) -> HashMap<HotkeyAction, Hotkey> {
+        self.hotkeys.clone()
+    }
+
     pub fn get(app: &AppHandle) -> Result<Option<Self>, String> {
         let Ok(Some(store)) = app.store("store").map(|s| s.get("hotkeys")) else {
             return Ok(None);
@@ -383,7 +410,20 @@ pub fn init(app: &AppHandle) {
                 for (action, hotkey) in &store.hotkeys {
                     if &Shortcut::from(*hotkey) == shortcut {
                         tracing::debug!(?action, %shortcut, "Hotkey fired");
-                        tokio::spawn(handle_hotkey(app.clone(), *action));
+                        let app = app.clone();
+                        let action = *action;
+                        tokio::spawn(async move {
+                            // A key that quietly does nothing is the worst
+                            // outcome: say what went wrong instead.
+                            if let Err(error) = handle_hotkey(app.clone(), action).await {
+                                tracing::error!(?action, %error, "Hotkey failed");
+                                crate::notifications::send_failure_notification(
+                                    &app,
+                                    "Shortcut failed",
+                                    &error,
+                                );
+                            }
+                        });
                     }
                 }
             })
@@ -421,6 +461,7 @@ fn open_area_screenshot_picker(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| format!("Failed to set screenshot mode: {e}"))?;
 
     tray::update_tray_icon_for_mode(app, cap_recording::RecordingMode::Screenshot);
+    tray::refresh_tray_menu_for_app(app);
 
     let _ = RequestOpenRecordingPicker {
         target_mode: Some(RecordingTargetMode::Area),
@@ -457,6 +498,7 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
                 .map_err(|e| format!("Failed to cycle mode: {e}"))?;
 
             tray::update_tray_icon_for_mode(&app, next);
+            tray::refresh_tray_menu_for_app(&app);
 
             Ok(())
         }

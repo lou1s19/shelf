@@ -128,13 +128,29 @@ objc2-app-kit = { version = "0.3.0", features = [
     "NSHapticFeedback",
     "NSWorkspace",
     "NSRunningApplication",
+    # Drawing SF Symbols for the tray menu, see src/tray_icons.rs
+    "NSAppearance",
+    "NSApplication",
+    "NSBitmapImageRep",
+    "NSColor",
+    "NSFontDescriptor",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSImage",
+    "NSImageRep",
+    "objc2-core-foundation",
 ] }
 objc2 = "0.6.0"
 objc2-foundation = { version = "0.3.0", features = [
     "NSNotification",
     "NSString",
     "NSThread",
+    # Watching the system light/dark switch, see src/tray_icons.rs
+    "NSDistributedNotificationCenter",
+    "NSOperation",
+    "block2",
 ] }
+block2 = "0.6.1"
 cocoa = "0.26.0"
 objc = "0.2.7"
 swift-rs = "1.0.6"

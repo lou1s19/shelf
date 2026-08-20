@@ -1,3 +1,4 @@
+import { createMutation, createQuery } from "@tanstack/solid-query";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import {
 	type CameraDeviceSettings,
@@ -9,16 +10,28 @@ import {
 	MicrophoneSettingsPanel,
 	type RecordingDeviceSettingsStore,
 } from "~/components/recording/DeviceSettingsPanels";
+import {
+	RecordingOptionsProvider,
+	useRecordingOptions,
+} from "~/routes/(window-chrome)/OptionsContext";
 import { generalSettingsStore, recordingSettingsStore } from "~/store";
 import {
 	type CameraWithDetails,
 	createStableDevicesQuery,
 	type MicrophoneWithDetails,
 } from "~/utils/devices";
+import { createCameraMutation, isSystemAudioSupported } from "~/utils/queries";
 import { commands, type DeviceOrModelID } from "~/utils/tauri";
 import IconLucideChevronDown from "~icons/lucide/chevron-down";
 
-import { Section, SectionCard, SettingsPageContent } from "./Setting";
+import {
+	Section,
+	SectionCard,
+	SectionRows,
+	SelectSettingItem,
+	SettingsPageContent,
+	ToggleSettingItem,
+} from "./Setting";
 
 /// The store is typed loosely for these two keys, same as the recording UI does.
 const deviceSettingsStore = recordingSettingsStore as unknown as {
@@ -31,6 +44,17 @@ const deviceSettingsStore = recordingSettingsStore as unknown as {
 };
 
 export default function DevicesSettings() {
+	// The picker for the active devices used to live in the tray menu. It needs
+	// the shared recording options, which the settings window does not provide
+	// on its own.
+	return (
+		<RecordingOptionsProvider>
+			<DevicesSettingsPage />
+		</RecordingOptionsProvider>
+	);
+}
+
+function DevicesSettingsPage() {
 	const devices = createStableDevicesQuery(() => true);
 	const settingsQuery = deviceSettingsStore.createQuery();
 	const generalSettings = generalSettingsStore.createQuery();
@@ -117,6 +141,16 @@ export default function DevicesSettings() {
 	return (
 		<SettingsPageContent class="space-y-4">
 			<Section
+				title="In use"
+				description="What a recording picks up. The same choice applies to the recording overlay."
+			>
+				<ActiveDevices
+					cameras={devices.cameras}
+					microphones={devices.microphones}
+				/>
+			</Section>
+
+			<Section
 				title="Cameras"
 				description="Resolution and frame rate per camera. Auto picks the highest format the camera reports."
 			>
@@ -184,6 +218,107 @@ export default function DevicesSettings() {
 				</SectionCard>
 			</Section>
 		</SettingsPageContent>
+	);
+}
+
+const NO_DEVICE = "";
+
+/** Camera, microphone and system audio: what the next recording will capture. */
+function ActiveDevices(props: {
+	cameras: CameraWithDetails[];
+	microphones: MicrophoneWithDetails[];
+}) {
+	const { rawOptions, setOptions } = useRecordingOptions();
+	const setCamera = createCameraMutation();
+	const systemAudioSupported = createQuery(() => isSystemAudioSupported);
+
+	const setMicrophone = createMutation(() => ({
+		mutationFn: async (name: string | null) => {
+			const previous = rawOptions.micName ?? null;
+			if (previous !== name) setOptions("micName", name);
+			try {
+				await commands.setMicInput(name);
+			} catch (error) {
+				if (previous !== name) setOptions("micName", previous);
+				throw error;
+			}
+		},
+		onError: (error) => console.error("Failed to set microphone:", error),
+	}));
+
+	const cameraValue = () => {
+		const selected = rawOptions.cameraID;
+		if (!selected) return NO_DEVICE;
+		const match = props.cameras.find((camera) =>
+			"ModelID" in selected
+				? camera.model_id === selected.ModelID
+				: camera.device_id === selected.DeviceID,
+		);
+		// A camera that is selected but unplugged keeps its slot rather than
+		// silently reading as "None".
+		return match?.device_id ?? NO_DEVICE;
+	};
+
+	const cameraOptions = () => [
+		{ text: "None", value: NO_DEVICE },
+		...props.cameras.map((camera) => ({
+			text: camera.display_name,
+			value: camera.device_id,
+		})),
+	];
+
+	const microphoneOptions = () => [
+		{ text: "None", value: NO_DEVICE },
+		...props.microphones.map((mic) => ({ text: mic.name, value: mic.name })),
+	];
+
+	const selectCamera = (deviceId: string) => {
+		if (deviceId === NO_DEVICE) {
+			setCamera.mutate({ model: null });
+			return;
+		}
+		const camera = props.cameras.find((it) => it.device_id === deviceId);
+		if (!camera) return;
+		setCamera.mutate({
+			model: camera.model_id
+				? { ModelID: camera.model_id }
+				: { DeviceID: camera.device_id },
+		});
+	};
+
+	return (
+		<SectionRows>
+			<SelectSettingItem
+				label="Camera"
+				description="Shown as an overlay while recording."
+				value={cameraValue()}
+				options={cameraOptions()}
+				onChange={selectCamera}
+			/>
+			<SelectSettingItem
+				label="Microphone"
+				value={rawOptions.micName ?? NO_DEVICE}
+				options={microphoneOptions()}
+				onChange={(name) =>
+					setMicrophone.mutate(name === NO_DEVICE ? null : name)
+				}
+			/>
+			<ToggleSettingItem
+				label="System audio"
+				description={
+					systemAudioSupported.data === false
+						? "Needs macOS 13 or later."
+						: "Records what the Mac plays back."
+				}
+				value={
+					systemAudioSupported.data !== false && !!rawOptions.captureSystemAudio
+				}
+				onChange={(value) => {
+					if (systemAudioSupported.data === false) return;
+					setOptions({ captureSystemAudio: value });
+				}}
+			/>
+		</SectionRows>
 	);
 }
 

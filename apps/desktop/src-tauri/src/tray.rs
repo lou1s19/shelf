@@ -1,24 +1,25 @@
 use crate::{
-    RecordingStarted, RecordingStopped, RequestOpenSettings, recording,
+    RecordingStarted, RecordingStopped, RequestOpenSettings,
+    hotkeys::{Hotkey, HotkeyAction, HotkeysStore},
+    recording,
     recording_settings::{RecordingSettingsStore, RecordingTargetMode},
+    tray_icons::{self, Tint, symbol},
     windows::ShowCapWindow,
 };
-use cap_recording::{RecordingMode, feeds::camera::DeviceOrModelID};
+use cap_recording::{RecordingMode, sources::screen_capture::ScreenCaptureTarget};
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use tauri::menu::{CheckMenuItem, IconMenuItem, MenuId, PredefinedMenuItem, Submenu};
+use tauri::Manager;
+use tauri::menu::{CheckMenuItem, IconMenuItem, IsMenuItem, MenuId, PredefinedMenuItem, Submenu};
 use tauri::{
     AppHandle,
     image::Image,
     menu::{Menu, MenuItem},
     tray::{TrayIcon, TrayIconBuilder},
 };
-use tauri::{Listener, Manager};
 use tauri_specta::Event;
-
-const CAMERA_ITEM_PREFIX: &str = "camera_item_";
-const MIC_ITEM_PREFIX: &str = "mic_item_";
 
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy)]
@@ -34,27 +35,29 @@ enum LinuxTrayIcon {
 impl LinuxTrayIcon {
     fn name(self) -> &'static str {
         match self {
-            Self::Default => "so.cap.desktop-tray-default-symbolic",
-            Self::Instant => "so.cap.desktop-tray-instant-symbolic",
-            Self::Screenshot => "so.cap.desktop-tray-screenshot-symbolic",
-            Self::Studio => "so.cap.desktop-tray-studio-symbolic",
-            Self::Stop => "so.cap.desktop-tray-stop-symbolic",
+            Self::Default => "de.shelf.desktop-tray-default-symbolic",
+            Self::Instant => "de.shelf.desktop-tray-instant-symbolic",
+            Self::Screenshot => "de.shelf.desktop-tray-screenshot-symbolic",
+            Self::Studio => "de.shelf.desktop-tray-studio-symbolic",
+            Self::Stop => "de.shelf.desktop-tray-stop-symbolic",
         }
     }
 
     fn svg(self) -> &'static str {
         match self {
             Self::Default => {
-                include_str!("../icons/linux/so.cap.desktop-tray-default-symbolic.svg")
+                include_str!("../icons/linux/de.shelf.desktop-tray-default-symbolic.svg")
             }
             Self::Instant => {
-                include_str!("../icons/linux/so.cap.desktop-tray-instant-symbolic.svg")
+                include_str!("../icons/linux/de.shelf.desktop-tray-instant-symbolic.svg")
             }
             Self::Screenshot => {
-                include_str!("../icons/linux/so.cap.desktop-tray-screenshot-symbolic.svg")
+                include_str!("../icons/linux/de.shelf.desktop-tray-screenshot-symbolic.svg")
             }
-            Self::Studio => include_str!("../icons/linux/so.cap.desktop-tray-studio-symbolic.svg"),
-            Self::Stop => include_str!("../icons/linux/so.cap.desktop-tray-stop-symbolic.svg"),
+            Self::Studio => {
+                include_str!("../icons/linux/de.shelf.desktop-tray-studio-symbolic.svg")
+            }
+            Self::Stop => include_str!("../icons/linux/de.shelf.desktop-tray-stop-symbolic.svg"),
         }
     }
 }
@@ -78,11 +81,6 @@ pub enum TrayItem {
     ModeInstant,
     ModeScreenshot,
     RequestPermissions,
-    /// Empty payload means "no camera".
-    SelectCamera(String),
-    /// Empty payload means "no microphone".
-    SelectMicrophone(String),
-    ToggleSystemAudio,
 }
 
 impl From<TrayItem> for MenuId {
@@ -105,13 +103,6 @@ impl From<TrayItem> for MenuId {
             TrayItem::ModeInstant => "mode_instant",
             TrayItem::ModeScreenshot => "mode_screenshot",
             TrayItem::RequestPermissions => "request_permissions",
-            TrayItem::SelectCamera(id) => {
-                return format!("{CAMERA_ITEM_PREFIX}{id}").into();
-            }
-            TrayItem::SelectMicrophone(name) => {
-                return format!("{MIC_ITEM_PREFIX}{name}").into();
-            }
-            TrayItem::ToggleSystemAudio => "toggle_system_audio",
         }
         .into()
     }
@@ -122,14 +113,6 @@ impl TryFrom<MenuId> for TrayItem {
 
     fn try_from(value: MenuId) -> Result<Self, Self::Error> {
         let id_str = value.0.as_str();
-
-        if let Some(id) = id_str.strip_prefix(CAMERA_ITEM_PREFIX) {
-            return Ok(TrayItem::SelectCamera(id.to_string()));
-        }
-
-        if let Some(name) = id_str.strip_prefix(MIC_ITEM_PREFIX) {
-            return Ok(TrayItem::SelectMicrophone(name.to_string()));
-        }
 
         match id_str {
             "start_stop_recording" => Ok(TrayItem::StartStopRecording),
@@ -149,7 +132,6 @@ impl TryFrom<MenuId> for TrayItem {
             "mode_instant" => Ok(TrayItem::ModeInstant),
             "mode_screenshot" => Ok(TrayItem::ModeScreenshot),
             "request_permissions" => Ok(TrayItem::RequestPermissions),
-            "toggle_system_audio" => Ok(TrayItem::ToggleSystemAudio),
             value => Err(format!("Invalid tray item id {value}")),
         }
     }
@@ -170,24 +152,7 @@ fn should_use_minimal_onboarding_tray_menu(app: &AppHandle) -> bool {
     !crate::permissions::do_permissions_check(false).necessary_granted()
 }
 
-/// Camera and microphone lists mirrored from the app-wide `devices-updated`
-/// event. The tray menu is built ahead of time, not when it opens, so it must
-/// never enumerate devices itself: that work already runs on a poll elsewhere
-/// and blocking the main thread with it would stall the menu.
-#[derive(Default, Clone)]
-struct TrayDeviceCache {
-    cameras: Vec<cap_camera::CameraInfo>,
-    microphones: Vec<String>,
-}
-
-#[derive(serde::Deserialize)]
-struct DevicesUpdatedPayload {
-    cameras: Vec<cap_camera::CameraInfo>,
-    microphones: Vec<String>,
-}
-
 pub(crate) struct TrayMenuCache {
-    devices: Arc<Mutex<TrayDeviceCache>>,
     is_recording: Arc<AtomicBool>,
 }
 
@@ -195,149 +160,289 @@ pub(crate) fn refresh_tray_menu_for_app(app: &AppHandle) {
     refresh_tray_menu(app);
 }
 
-fn camera_matches(info: &cap_camera::CameraInfo, selected: &DeviceOrModelID) -> bool {
-    match selected {
-        DeviceOrModelID::DeviceID(device_id) => info.device_id() == device_id,
-        DeviceOrModelID::ModelID(model_id) => info.model_id() == Some(model_id),
-    }
-}
-
-fn create_camera_submenu(
+/// A menu row with an SF Symbol in front of it. Falls back to a plain row when
+/// the symbol is unavailable (older macOS, or another platform entirely).
+fn row(
     app: &AppHandle,
-    devices: &TrayDeviceCache,
-    selected: Option<&DeviceOrModelID>,
-) -> tauri::Result<Submenu<tauri::Wry>> {
-    let submenu = Submenu::with_id(app, "camera_menu", "Camera", true)?;
+    id: impl Into<MenuId>,
+    label: &str,
+    enabled: bool,
+    accelerator: Option<String>,
+    symbol: &'static str,
+    tint: Tint,
+) -> tauri::Result<Box<dyn IsMenuItem<tauri::Wry>>> {
+    let id: MenuId = id.into();
+    let icon = tray_icons::menu_icon(symbol, tint);
 
-    submenu.append(&CheckMenuItem::with_id(
-        app,
-        TrayItem::SelectCamera(String::new()),
-        "No Camera",
-        true,
-        selected.is_none(),
-        None::<&str>,
-    )?)?;
+    // A key the menu layer cannot spell must not take the whole menu down with
+    // it: the row is built again without its shortcut instead.
+    let build = |accelerator: Option<String>| -> tauri::Result<Box<dyn IsMenuItem<tauri::Wry>>> {
+        Ok(match icon.clone() {
+            Some(icon) => Box::new(IconMenuItem::with_id(
+                app,
+                id.clone(),
+                label,
+                enabled,
+                Some(icon),
+                accelerator,
+            )?),
+            None => Box::new(MenuItem::with_id(
+                app,
+                id.clone(),
+                label,
+                enabled,
+                accelerator,
+            )?),
+        })
+    };
 
-    if devices.cameras.is_empty() {
-        submenu.append(&MenuItem::with_id(
-            app,
-            "camera_menu_empty",
-            "No cameras found",
-            false,
-            None::<&str>,
-        )?)?;
-        return Ok(submenu);
+    match build(accelerator.clone()) {
+        Ok(item) => Ok(item),
+        Err(error) if accelerator.is_some() => {
+            tracing::warn!("Tray row {label:?} dropped its shortcut: {error}");
+            build(None)
+        }
+        Err(error) => Err(error),
     }
-
-    for camera in &devices.cameras {
-        let checked = selected.is_some_and(|id| camera_matches(camera, id));
-        submenu.append(&CheckMenuItem::with_id(
-            app,
-            TrayItem::SelectCamera(camera.device_id().to_string()),
-            camera.display_name(),
-            true,
-            checked,
-            None::<&str>,
-        )?)?;
-    }
-
-    Ok(submenu)
 }
 
-fn create_microphone_submenu(
+fn submenu_with_symbol(
     app: &AppHandle,
-    devices: &TrayDeviceCache,
-    selected: Option<&str>,
+    id: &str,
+    label: &str,
+    symbol: &'static str,
+    tint: Tint,
 ) -> tauri::Result<Submenu<tauri::Wry>> {
-    let submenu = Submenu::with_id(app, "microphone_menu", "Microphone", true)?;
-
-    submenu.append(&CheckMenuItem::with_id(
-        app,
-        TrayItem::SelectMicrophone(String::new()),
-        "No Microphone",
-        true,
-        selected.is_none(),
-        None::<&str>,
-    )?)?;
-
-    if devices.microphones.is_empty() {
-        submenu.append(&MenuItem::with_id(
-            app,
-            "microphone_menu_empty",
-            "No microphones found",
-            false,
-            None::<&str>,
-        )?)?;
-        return Ok(submenu);
+    match tray_icons::menu_icon(symbol, tint) {
+        Some(icon) => Submenu::with_id_and_icon(app, id, label, true, Some(icon)),
+        None => Submenu::with_id(app, id, label, true),
     }
-
-    for name in &devices.microphones {
-        submenu.append(&CheckMenuItem::with_id(
-            app,
-            TrayItem::SelectMicrophone(name.clone()),
-            name,
-            true,
-            selected == Some(name.as_str()),
-            None::<&str>,
-        )?)?;
-    }
-
-    Ok(submenu)
 }
 
-/// Both groups are always in the menu now (see CHANGELOG), tucked into
-/// submenus so the top level stays short. Icons are reused from the
-/// existing mode icons rather than inventing new artwork.
-fn create_screenshot_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
-    let icon = Image::from_bytes(include_bytes!("../icons/tray-default-icon-screenshot.png"))?;
-    let submenu = Submenu::with_id_and_icon(
+/// The shortcut a row should advertise, taken from what is actually
+/// registered. An unset action shows no shortcut rather than a wrong one.
+fn accelerator_for(
+    hotkeys: &HashMap<HotkeyAction, Hotkey>,
+    action: HotkeyAction,
+) -> Option<String> {
+    hotkeys.get(&action).map(Hotkey::accelerator)
+}
+
+fn stored_hotkeys(app: &AppHandle) -> HashMap<HotkeyAction, Hotkey> {
+    HotkeysStore::get(app)
+        .ok()
+        .flatten()
+        .map(|store| store.entries())
+        .unwrap_or_default()
+}
+
+fn target_label(target: Option<&ScreenCaptureTarget>) -> &'static str {
+    match target {
+        Some(ScreenCaptureTarget::Display { .. }) => "Display",
+        Some(ScreenCaptureTarget::Window { .. }) => "Window",
+        Some(ScreenCaptureTarget::Area { .. }) => "Area",
+        Some(ScreenCaptureTarget::CameraOnly) => "Camera",
+        None => "Display",
+    }
+}
+
+fn mode_label(mode: RecordingMode) -> &'static str {
+    match mode {
+        RecordingMode::Studio => "Studio",
+        RecordingMode::Instant => "Instant",
+        RecordingMode::Screenshot => "Screenshot",
+    }
+}
+
+fn mode_symbol(mode: RecordingMode) -> &'static str {
+    match mode {
+        RecordingMode::Studio => symbol::MODE_STUDIO,
+        RecordingMode::Instant => symbol::MODE_INSTANT,
+        // Deliberately not `CAPTURE`: the Screenshot submenu sits right above
+        // this row and two identical glyphs read as a duplicate entry.
+        RecordingMode::Screenshot => symbol::MODE_SCREENSHOT,
+    }
+}
+
+/// The line at the top. It is the only place that says what the app is doing
+/// right now, so it names the state and what a click would capture.
+fn status_row(
+    app: &AppHandle,
+    is_recording: bool,
+    mode: RecordingMode,
+    target: Option<&ScreenCaptureTarget>,
+) -> tauri::Result<Box<dyn IsMenuItem<tauri::Wry>>> {
+    // The permission check talks to the system, so it is skipped while
+    // recording: the answer cannot matter then, capture is already running.
+    let permissions_missing =
+        !is_recording && !crate::permissions::do_permissions_check(false).necessary_granted();
+
+    let (label, symbol, tint) = if is_recording {
+        ("Recording".to_string(), symbol::RECORDING, Tint::Red)
+    } else if permissions_missing {
+        (
+            "Permissions needed".to_string(),
+            symbol::WARNING,
+            Tint::Amber,
+        )
+    } else if mode == RecordingMode::Screenshot {
+        (
+            format!("Ready · Screenshot, {}", target_label(target)),
+            symbol::READY,
+            Tint::Green,
+        )
+    } else {
+        (
+            format!("Ready · {}, {}", mode_label(mode), target_label(target)),
+            symbol::READY,
+            Tint::Green,
+        )
+    };
+
+    row(app, "status", &label, false, None, symbol, tint)
+}
+
+fn create_screenshot_submenu(
+    app: &AppHandle,
+    hotkeys: &HashMap<HotkeyAction, Hotkey>,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let submenu = submenu_with_symbol(
         app,
         "screenshot_menu",
         "Screenshot",
-        true,
-        Some(icon.clone()),
+        symbol::CAPTURE,
+        Tint::Label,
     )?;
 
-    for (tray_item, label) in [
-        (TrayItem::ScreenshotDisplay, "Display"),
-        (TrayItem::ScreenshotWindow, "Window"),
-        (TrayItem::ScreenshotArea, "Area"),
+    for (tray_item, label, glyph, action) in [
+        (
+            TrayItem::ScreenshotDisplay,
+            "Display",
+            symbol::DISPLAY,
+            HotkeyAction::ScreenshotDisplay,
+        ),
+        (
+            TrayItem::ScreenshotWindow,
+            "Window",
+            symbol::WINDOW,
+            HotkeyAction::ScreenshotWindow,
+        ),
+        (
+            TrayItem::ScreenshotArea,
+            "Area",
+            symbol::AREA,
+            HotkeyAction::ScreenshotArea,
+        ),
     ] {
-        submenu.append(&IconMenuItem::with_id(
-            app,
-            tray_item,
-            label,
-            true,
-            Some(icon.clone()),
-            None::<&str>,
-        )?)?;
+        submenu.append(
+            row(
+                app,
+                tray_item,
+                label,
+                true,
+                accelerator_for(hotkeys, action),
+                glyph,
+                Tint::Label,
+            )?
+            .as_ref(),
+        )?;
     }
 
     Ok(submenu)
 }
 
-fn create_record_screen_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
-    let icon = Image::from_bytes(include_bytes!("../icons/tray-default-icon.png"))?;
-    let submenu = Submenu::with_id_and_icon(
+fn create_record_screen_submenu(
+    app: &AppHandle,
+    hotkeys: &HashMap<HotkeyAction, Hotkey>,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let submenu = submenu_with_symbol(
         app,
         "record_screen_menu",
-        "Record Screen",
-        true,
-        Some(icon.clone()),
+        "Record",
+        symbol::RECORD_SCREEN,
+        Tint::Label,
     )?;
 
-    for (tray_item, label) in [
-        (TrayItem::RecordDisplay, "Display"),
-        (TrayItem::RecordWindow, "Window"),
-        (TrayItem::RecordArea, "Area"),
-        (TrayItem::RecordCameraOnly, "Camera Only"),
+    for (tray_item, label, glyph, action) in [
+        (
+            TrayItem::RecordDisplay,
+            "Display",
+            symbol::DISPLAY,
+            Some(HotkeyAction::OpenRecordingPickerDisplay),
+        ),
+        (
+            TrayItem::RecordWindow,
+            "Window",
+            symbol::WINDOW,
+            Some(HotkeyAction::OpenRecordingPickerWindow),
+        ),
+        (
+            TrayItem::RecordArea,
+            "Area",
+            symbol::AREA,
+            Some(HotkeyAction::OpenRecordingPickerArea),
+        ),
+        (
+            TrayItem::RecordCameraOnly,
+            "Camera Only",
+            symbol::CAMERA,
+            None,
+        ),
     ] {
-        submenu.append(&IconMenuItem::with_id(
+        submenu.append(
+            row(
+                app,
+                tray_item,
+                label,
+                true,
+                action.and_then(|action| accelerator_for(hotkeys, action)),
+                glyph,
+                Tint::Label,
+            )?
+            .as_ref(),
+        )?;
+    }
+
+    Ok(submenu)
+}
+
+/// Mode lives in its own submenu that carries the current choice in its title,
+/// so the top level stays short but never hides which mode is active.
+fn create_mode_submenu(
+    app: &AppHandle,
+    current_mode: RecordingMode,
+    hotkeys: &HashMap<HotkeyAction, Hotkey>,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let submenu = submenu_with_symbol(
+        app,
+        "mode_menu",
+        &format!("Mode: {}", mode_label(current_mode)),
+        mode_symbol(current_mode),
+        Tint::Label,
+    )?;
+
+    for (tray_item, mode) in [
+        (TrayItem::ModeStudio, RecordingMode::Studio),
+        (TrayItem::ModeInstant, RecordingMode::Instant),
+        (TrayItem::ModeScreenshot, RecordingMode::Screenshot),
+    ] {
+        submenu.append(&CheckMenuItem::with_id(
             app,
             tray_item,
-            label,
+            mode_label(mode),
             true,
-            Some(icon.clone()),
+            current_mode == mode,
+            None::<&str>,
+        )?)?;
+    }
+
+    if let Some(accelerator) = accelerator_for(hotkeys, HotkeyAction::CycleRecordingMode) {
+        submenu.append(&PredefinedMenuItem::separator(app)?)?;
+        submenu.append(&MenuItem::with_id(
+            app,
+            "mode_cycle_hint",
+            format!("Cycle with {accelerator}"),
+            false,
             None::<&str>,
         )?)?;
     }
@@ -347,27 +452,40 @@ fn create_record_screen_submenu(app: &AppHandle) -> tauri::Result<Submenu<tauri:
 
 fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     if should_use_minimal_onboarding_tray_menu(app) {
-        return Menu::with_items(
+        let menu = Menu::new(app)?;
+        menu.append(
+            row(
+                app,
+                TrayItem::RequestPermissions,
+                "Request Permissions",
+                true,
+                None,
+                symbol::PERMISSIONS,
+                Tint::Amber,
+            )?
+            .as_ref(),
+        )?;
+        menu.append(&PredefinedMenuItem::separator(app)?)?;
+        menu.append(&MenuItem::with_id(
             app,
-            &[
-                &MenuItem::with_id(
-                    app,
-                    TrayItem::RequestPermissions,
-                    "Request Permissions",
-                    true,
-                    None::<&str>,
-                )?,
-                &PredefinedMenuItem::separator(app)?,
-                &MenuItem::with_id(
-                    app,
-                    "version",
-                    format!("Shelf v{}", env!("CARGO_PKG_VERSION")),
-                    false,
-                    None::<&str>,
-                )?,
-                &MenuItem::with_id(app, TrayItem::Quit, "Quit Shelf", true, None::<&str>)?,
-            ],
-        );
+            "version",
+            format!("Shelf {}", env!("CARGO_PKG_VERSION")),
+            false,
+            None::<&str>,
+        )?)?;
+        menu.append(
+            row(
+                app,
+                TrayItem::Quit,
+                "Quit Shelf",
+                true,
+                Some("Cmd+Q".to_string()),
+                symbol::QUIT,
+                Tint::Secondary,
+            )?
+            .as_ref(),
+        )?;
+        return Ok(menu);
     }
 
     let settings = RecordingSettingsStore::get(app)
@@ -377,131 +495,117 @@ fn build_tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let current_mode = settings.mode.unwrap_or_default();
     let is_screenshot_mode = current_mode == RecordingMode::Screenshot;
 
-    let (devices, is_recording) = match app.try_state::<TrayMenuCache>() {
-        Some(state) => (
-            state.devices.lock().unwrap().clone(),
-            state.is_recording.load(Ordering::Relaxed),
-        ),
-        None => (TrayDeviceCache::default(), false),
-    };
+    let is_recording = app
+        .try_state::<TrayMenuCache>()
+        .map(|state| state.is_recording.load(Ordering::Relaxed))
+        .unwrap_or(false);
 
-    let camera_submenu = create_camera_submenu(app, &devices, settings.camera_id.as_ref())?;
-    let microphone_submenu =
-        create_microphone_submenu(app, &devices, settings.mic_name.as_deref())?;
+    let hotkeys = stored_hotkeys(app);
 
     let menu = Menu::new(app)?;
 
-    // 1. The one action the menu exists for.
-    let primary_label = if is_recording {
-        "Stop Recording"
+    // 1. What the app is doing right now.
+    menu.append(status_row(app, is_recording, current_mode, settings.target.as_ref())?.as_ref())?;
+    menu.append(&PredefinedMenuItem::separator(app)?)?;
+
+    // 2. The one action the menu exists for.
+    let (primary_label, primary_symbol, primary_tint) = if is_recording {
+        ("Stop Recording", symbol::STOP, Tint::Red)
     } else if is_screenshot_mode {
-        "Take Screenshot"
+        ("Take Screenshot", symbol::CAPTURE, Tint::Label)
     } else {
-        "Start Recording"
+        ("Start Recording", symbol::START, Tint::Red)
     };
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::StartStopRecording,
-        primary_label,
-        true,
-        None::<&str>,
-    )?)?;
-
-    // 2. Quick actions that pick a target first.
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-
-    menu.append(&create_screenshot_submenu(app)?)?;
-    menu.append(&create_record_screen_submenu(app)?)?;
-
-    // 3. Mode, visible at a glance instead of hidden in a submenu.
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        "mode_header",
-        "Mode",
-        false,
-        None::<&str>,
-    )?)?;
-
-    for (tray_item, mode, label) in [
-        (TrayItem::ModeStudio, RecordingMode::Studio, "Studio"),
-        (TrayItem::ModeInstant, RecordingMode::Instant, "Instant"),
-        (
-            TrayItem::ModeScreenshot,
-            RecordingMode::Screenshot,
-            "Screenshot",
-        ),
-    ] {
-        menu.append(&CheckMenuItem::with_id(
+    menu.append(
+        row(
             app,
-            tray_item,
-            label,
+            TrayItem::StartStopRecording,
+            primary_label,
             true,
-            current_mode == mode,
-            None::<&str>,
-        )?)?;
-    }
+            accelerator_for(&hotkeys, HotkeyAction::ToggleRecording),
+            primary_symbol,
+            primary_tint,
+        )?
+        .as_ref(),
+    )?;
 
-    // 4. Devices.
-    menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&camera_submenu)?;
-    menu.append(&microphone_submenu)?;
-    menu.append(&CheckMenuItem::with_id(
-        app,
-        TrayItem::ToggleSystemAudio,
-        "System Audio",
-        crate::platform::is_system_audio_capture_supported(),
-        settings.system_audio,
-        None::<&str>,
-    )?)?;
+    // 3. Capture something specific, and the mode those entries feed into.
+    menu.append(&create_record_screen_submenu(app, &hotkeys)?)?;
+    menu.append(&create_screenshot_submenu(app, &hotkeys)?)?;
+    menu.append(&create_mode_submenu(app, current_mode, &hotkeys)?)?;
 
-    // 5. Everything already captured.
+    // 4. Everything already captured.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::ViewAllRecordings,
-        "View all recordings",
-        true,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::ViewAllScreenshots,
-        "View all screenshots",
-        true,
-        None::<&str>,
-    )?)?;
+    menu.append(
+        row(
+            app,
+            TrayItem::ViewAllRecordings,
+            "Recordings",
+            true,
+            None,
+            symbol::RECORDINGS,
+            Tint::Label,
+        )?
+        .as_ref(),
+    )?;
+    menu.append(
+        row(
+            app,
+            TrayItem::ViewAllScreenshots,
+            "Screenshots",
+            true,
+            None,
+            symbol::SCREENSHOTS,
+            Tint::Label,
+        )?
+        .as_ref(),
+    )?;
+    menu.append(
+        row(
+            app,
+            TrayItem::OpenTeleprompter,
+            "Teleprompter",
+            true,
+            None,
+            symbol::TELEPROMPTER,
+            Tint::Label,
+        )?
+        .as_ref(),
+    )?;
 
-    // 6. Rarely needed now that the menu carries the controls.
+    // 5. The app itself.
     menu.append(&PredefinedMenuItem::separator(app)?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::OpenTeleprompter,
-        "Teleprompter",
-        true,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::OpenSettings,
-        "Settings",
-        true,
-        None::<&str>,
-    )?)?;
+    menu.append(
+        row(
+            app,
+            TrayItem::OpenSettings,
+            "Settings…",
+            true,
+            Some("Cmd+,".to_string()),
+            symbol::SETTINGS,
+            Tint::Label,
+        )?
+        .as_ref(),
+    )?;
+    menu.append(
+        row(
+            app,
+            TrayItem::Quit,
+            "Quit Shelf",
+            true,
+            Some("Cmd+Q".to_string()),
+            symbol::QUIT,
+            Tint::Secondary,
+        )?
+        .as_ref(),
+    )?;
 
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(
         app,
         "version",
-        format!("Shelf v{}", env!("CARGO_PKG_VERSION")),
+        format!("Shelf {}", env!("CARGO_PKG_VERSION")),
         false,
-        None::<&str>,
-    )?)?;
-    menu.append(&MenuItem::with_id(
-        app,
-        TrayItem::Quit,
-        "Quit Shelf",
-        true,
         None::<&str>,
     )?)?;
 
@@ -704,81 +808,10 @@ fn handle_start_stop(app: &AppHandle, is_recording: &Arc<AtomicBool>) {
     let _ = crate::RequestStartRecording { mode }.emit(app);
 }
 
-fn handle_camera_selection(app: &AppHandle, device_id: &str) {
-    let id = if device_id.is_empty() {
-        None
-    } else {
-        let devices = app.try_state::<TrayMenuCache>().map(|state| {
-            let devices = state.devices.lock().unwrap();
-            devices.cameras.clone()
-        });
-
-        let Some(info) = devices
-            .unwrap_or_default()
-            .into_iter()
-            .find(|camera| camera.device_id() == device_id)
-        else {
-            tracing::warn!("Tray selected a camera that is no longer listed: {device_id}");
-            return;
-        };
-
-        Some(DeviceOrModelID::from_info(&info))
-    };
-
-    if let Err(e) = RecordingSettingsStore::set_camera_id(app, id.clone()) {
-        tracing::error!("Failed to persist camera selection: {e}");
-        return;
-    }
-
-    refresh_tray_menu(app);
-
-    let app = app.clone();
-    tokio::spawn(async move {
-        if let Err(e) = crate::set_camera_input(app.clone(), app.state(), id, None).await {
-            tracing::error!("Failed to apply camera selection from tray: {e}");
-        }
-    });
-}
-
-fn handle_microphone_selection(app: &AppHandle, name: &str) {
-    let label = (!name.is_empty()).then(|| name.to_string());
-
-    if let Err(e) = RecordingSettingsStore::set_mic_name(app, label.clone()) {
-        tracing::error!("Failed to persist microphone selection: {e}");
-        return;
-    }
-
-    refresh_tray_menu(app);
-
-    let app = app.clone();
-    tokio::spawn(async move {
-        if let Err(e) = crate::set_mic_input(app.state(), label).await {
-            tracing::error!("Failed to apply microphone selection from tray: {e}");
-        }
-    });
-}
-
-fn handle_system_audio_toggle(app: &AppHandle) {
-    let enabled = RecordingSettingsStore::get(app)
-        .ok()
-        .flatten()
-        .map(|settings| settings.system_audio)
-        .unwrap_or_default();
-
-    if let Err(e) = RecordingSettingsStore::set_system_audio(app, !enabled) {
-        tracing::error!("Failed to persist system audio setting: {e}");
-        return;
-    }
-
-    refresh_tray_menu(app);
-}
-
 pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let devices = Arc::new(Mutex::new(TrayDeviceCache::default()));
     let is_recording = Arc::new(AtomicBool::new(false));
 
     app.manage(TrayMenuCache {
-        devices: devices.clone(),
         is_recording: is_recording.clone(),
     });
 
@@ -788,7 +821,13 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let current_mode = get_current_mode(&app);
     let initial_icon = Image::from_bytes(get_mode_icon(current_mode))?;
 
-    let _ = TrayIconBuilder::with_id("tray")
+    // Light/dark switches change the glyph colours, so the menu is rebuilt.
+    tray_icons::observe_appearance_changes({
+        let app = app.clone();
+        move || refresh_tray_menu(&app)
+    });
+
+    let tray = TrayIconBuilder::with_id("tray")
         .icon(initial_icon)
         .icon_as_template(cfg!(target_os = "macos"))
         .menu(&menu)
@@ -878,15 +917,6 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                 Ok(TrayItem::ModeScreenshot) => {
                     handle_mode_selection(app, RecordingMode::Screenshot);
                 }
-                Ok(TrayItem::SelectCamera(device_id)) => {
-                    handle_camera_selection(app, &device_id);
-                }
-                Ok(TrayItem::SelectMicrophone(name)) => {
-                    handle_microphone_selection(app, &name);
-                }
-                Ok(TrayItem::ToggleSystemAudio) => {
-                    handle_system_audio_toggle(app);
-                }
                 Ok(TrayItem::RequestPermissions) => {
                     let app = app.clone();
                     tokio::spawn(async move {
@@ -905,6 +935,13 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(&app);
+
+    // Shelf has no main window: without the tray there is no way to reach the
+    // app at all, so this must not fail quietly.
+    if let Err(error) = tray {
+        tracing::error!("Failed to create the tray icon: {error}");
+        return Err(error);
+    }
 
     #[cfg(target_os = "linux")]
     if let Some(tray) = app.tray_by_id("tray")
@@ -953,40 +990,6 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             if let Err(error) = set_tray_icon_for_mode(&tray, current_mode) {
                 tracing::warn!("Failed to update tray icon for recording stop: {error}");
             }
-        }
-    });
-
-    // `DevicesUpdated` carries no Deserialize impl, so the typed listener is out
-    // of reach; the raw listener uses the same event name and payload shape.
-    app.listen_any(<crate::DevicesUpdated as tauri_specta::Event>::NAME, {
-        let app_handle = app.clone();
-        let devices = devices.clone();
-        move |event| {
-            let payload = match serde_json::from_str::<DevicesUpdatedPayload>(event.payload()) {
-                Ok(payload) => payload,
-                Err(e) => {
-                    tracing::warn!("Failed to read devices-updated payload for tray: {e}");
-                    return;
-                }
-            };
-
-            {
-                let mut guard = devices.lock().unwrap();
-                let unchanged = guard.microphones == payload.microphones
-                    && guard.cameras.len() == payload.cameras.len()
-                    && guard
-                        .cameras
-                        .iter()
-                        .zip(payload.cameras.iter())
-                        .all(|(a, b)| a.device_id() == b.device_id());
-                if unchanged {
-                    return;
-                }
-                guard.cameras = payload.cameras;
-                guard.microphones = payload.microphones;
-            }
-
-            refresh_tray_menu(&app_handle);
         }
     });
 

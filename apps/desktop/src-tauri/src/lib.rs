@@ -39,6 +39,7 @@ mod screenshot_editor;
 mod target_select_overlay;
 mod thumbnails;
 mod tray;
+mod tray_icons;
 mod update_project_names;
 mod updates;
 mod window_exclusion;
@@ -106,8 +107,6 @@ use tauri_plugin_shell::ShellExt;
 use tauri_specta::Event;
 use tokio::sync::{Mutex, RwLock, oneshot, watch};
 use tracing::*;
-#[cfg(target_os = "macos")]
-use windows::hide_overlay;
 use windows::{
     CapWindowId, EditorRecordingTarget, EditorWindowIds, ScreenshotEditorWindowIds, ShowCapWindow,
     set_window_transparent, show_overlay,
@@ -4708,7 +4707,7 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
 
             let action_urls = args
                 .iter()
-                .filter(|arg| arg.starts_with("cap-desktop://"))
+                .filter(|arg| arg.starts_with("shelf://"))
                 .filter_map(|arg| tauri::Url::parse(arg).ok())
                 .collect::<Vec<_>>();
             if !action_urls.is_empty() {
@@ -5183,6 +5182,13 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
 
                                 restore_main_windows_if_no_editors(app);
                             }
+                            CapWindowId::RecordingsOverlay => {
+                                // The release timer lives in the webview. If the
+                                // window dies while the shortcut is grabbed,
+                                // Cmd+C stays captured system-wide until Shelf
+                                // restarts.
+                                hotkeys::set_pin_copy_shortcut_active(app.clone(), false);
+                            }
                             CapWindowId::Settings => {
                                 restore_main_and_target_select_windows(app);
 
@@ -5240,16 +5246,6 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
                 #[cfg(target_os = "macos")]
                 WindowEvent::Focused(focused) => {
                     let window_id = CapWindowId::from_str(label);
-
-{
-                        for (label, window) in app.webview_windows() {
-                            if let Ok(id) = CapWindowId::from_str(&label)
-                                && matches!(id, CapWindowId::TargetSelectOverlay { .. })
-                            {
-                                hide_overlay(&window);
-                            }
-                        }
-                    }
 
                     if *focused
                         && let Ok(window_id) = window_id

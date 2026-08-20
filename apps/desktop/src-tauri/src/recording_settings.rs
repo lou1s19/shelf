@@ -62,18 +62,6 @@ impl RecordingSettingsStore {
         Self::update(app, |settings| settings.mode = Some(mode))
     }
 
-    pub fn set_mic_name(app: &AppHandle<Wry>, name: Option<String>) -> Result<(), String> {
-        Self::update(app, |settings| settings.mic_name = name)
-    }
-
-    pub fn set_camera_id(app: &AppHandle<Wry>, id: Option<DeviceOrModelID>) -> Result<(), String> {
-        Self::update(app, |settings| settings.camera_id = id)
-    }
-
-    pub fn set_system_audio(app: &AppHandle<Wry>, enabled: bool) -> Result<(), String> {
-        Self::update(app, |settings| settings.system_audio = enabled)
-    }
-
     pub fn set_target(
         app: &AppHandle<Wry>,
         target: Option<ScreenCaptureTarget>,
@@ -116,5 +104,8 @@ pub fn camera_key(id: &DeviceOrModelID) -> String {
 pub fn set_recording_mode(app: AppHandle, mode: RecordingMode) -> Result<(), String> {
     RecordingSettingsStore::set_mode(&app, mode)?;
     tray::update_tray_icon_for_mode(&app, mode);
+    // The menu names the current mode and the primary action depends on it, so
+    // a change made anywhere else has to reach the tray as well.
+    tray::refresh_tray_menu_for_app(&app);
     Ok(())
 }
