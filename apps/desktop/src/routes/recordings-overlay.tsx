@@ -875,13 +875,34 @@ function createFakeWindowBounds(
 	});
 }
 
+/**
+ * A screenshot card points at the PNG inside the bundle
+ * (`.../Name.cap/original.png`), a recording card at the bundle itself. Anything
+ * that reads the recording metadata needs the bundle, because that is where
+ * `recording-meta.json` lives.
+ */
+function projectBundlePath(path: string) {
+	// Windows hands out backslashes, so both separators have to count.
+	const index = Math.max(path.lastIndexOf(".cap/"), path.lastIndexOf(".cap\\"));
+	return index === -1 ? path : path.slice(0, index + ".cap".length);
+}
+
+/** `.../DELL (Area) 2026-08-20 12.57 PM.cap` -> `DELL (Area) 2026-08-20 12.57 PM` */
+function projectBundleName(bundlePath: string) {
+	const fileName = bundlePath.split(/[/\\]/).pop() ?? "";
+	return fileName.endsWith(".cap")
+		? fileName.slice(0, -".cap".length)
+		: fileName;
+}
+
 function createRecordingMutations(media: MediaEntry) {
 	const type = media.type ?? "recording";
 	const isRecording = type !== "screenshot";
+	const bundlePath = projectBundlePath(media.path);
 
 	const recordingMeta = createQuery(() => ({
-		queryKey: ["recordingMeta", media.path],
-		queryFn: () => commands.getRecordingMeta(media.path, type),
+		queryKey: ["recordingMeta", bundlePath],
+		queryFn: () => commands.getRecordingMeta(bundlePath, type),
 	}));
 
 	// just a wrapper of exportVideo to provide base settings
@@ -956,15 +977,14 @@ function createRecordingMutations(media: MediaEntry) {
 
 	const save = createMutation(() => ({
 		mutationFn: async () => {
-			const meta = recordingMeta.data;
-			if (!meta) {
-				throw new Error("Recording metadata not available");
-			}
-
+			// No hard failure when the metadata cannot be read: the pretty name is
+			// only a suggestion for the save dialog, and throwing here used to make
+			// the Export button do nothing at all.
 			const defaultName = isRecording
 				? "Shelf Recording"
-				: media.path.split(".cap/")[1];
-			const suggestedName = meta.pretty_name || defaultName;
+				: projectBundleName(bundlePath);
+			const suggestedName =
+				recordingMeta.data?.pretty_name?.trim() || defaultName;
 
 			const fileType = isRecording ? "mp4" : "screenshot";
 			const extension = isRecording ? ".mp4" : ".png";
@@ -1022,6 +1042,9 @@ function createRecordingMutations(media: MediaEntry) {
 			setActionState({ type: "save", state: { type: "saved" } });
 
 			return true;
+		},
+		onError(error) {
+			console.error("Error in save media:", error);
 		},
 		onSettled() {
 			setTimeout(() => {
