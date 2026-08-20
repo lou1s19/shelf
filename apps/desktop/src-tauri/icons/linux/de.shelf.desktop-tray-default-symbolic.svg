@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-	<rect class="ColorScheme-Text" style="fill:currentColor" x="3.64" y="4.36" width="8.73" height="2.33" rx="1.16"/>
-	<rect class="ColorScheme-Text" style="fill:currentColor" x="2.18" y="9.45" width="11.64" height="2.33" rx="1.16"/>
+	<rect class="ColorScheme-Text" style="fill:currentColor" x="2.25" y="12.25" width="11.50" height="1.12" rx="0.56"/>
+	<rect class="ColorScheme-Text" style="fill:currentColor" x="4.50" y="4.75" width="2.75" height="7.50" rx="0.75"/>
+	<rect class="ColorScheme-Text" style="fill:currentColor" x="8.75" y="7.25" width="2.75" height="5.00" rx="0.75"/>
 </svg>
