@@ -67,6 +67,11 @@ Editor-Fenster, und genau beim Eintragen dieses Fensters blieb die App hängen.
   Sperre fallen gelassen. Das Aufräumen eines Fensters kann selbst wieder einen
   verschachtelten Event-Loop fahren, und das während gehaltener Sperre wäre
   derselbe Fehler nochmal.
+- **Auch repariert: das Install-Skript baut fehlende Sidecars selbst.** In einem
+  frischen Klon fehlen `cap-muxer`, `cap-cli` und `cap-exporter`, und Tauri merkt
+  das erst nach einigen Minuten Rust-Build (`resource path
+  binaries/cap-muxer-aarch64-apple-darwin doesn't exist`). Fehlen sie, ruft
+  `install-shelf.sh` jetzt vorher `scripts/build-desktop-binaries.sh` auf.
 - **Auch repariert: `scripts/install-shelf.sh release` lief nie.** macOS liefert
   bash 3.2, dort zählt ein leeres Array unter `set -u` als nicht gesetzt, und
   `BUILD_FLAGS=()` für den Release-Build ließ das Skript sofort mit

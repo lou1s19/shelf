@@ -31,6 +31,14 @@ case "$MODE" in
 	*) echo "usage: $0 [debug|release]" >&2; exit 2 ;;
 esac
 
+# A fresh clone has no sidecars, and tauri only fails once it is deep into the
+# Rust build. Build them up front instead.
+TRIPLE="$(rustc -vV | sed -n 's|host: ||p')"
+if [ ! -f "$REPO/apps/desktop/src-tauri/binaries/cap-muxer-$TRIPLE" ]; then
+	echo "==> building sidecars (cap-muxer, cap-cli, cap-exporter)"
+	bash "$REPO/scripts/build-desktop-binaries.sh"
+fi
+
 echo "==> building ($MODE)"
 cd "$REPO"
 # The build log goes to a file rather than the terminal, but a failure has to
