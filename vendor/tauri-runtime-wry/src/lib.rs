@@ -239,9 +239,31 @@ fn empty_window_store() -> &'static WindowsStore {
   EMPTY.get_or_init(|| WindowsStore(RefCell::new(BTreeMap::new())))
 }
 
+static WINDOW_STORE_READERS: std::sync::atomic::AtomicUsize =
+  std::sync::atomic::AtomicUsize::new(0);
+
+struct WindowStoreReaderCount;
+
+impl WindowStoreReaderCount {
+  fn new() -> Self {
+    WINDOW_STORE_READERS.fetch_add(1, std::sync::atomic::Ordering::Release);
+    Self
+  }
+}
+
+impl Drop for WindowStoreReaderCount {
+  fn drop(&mut self) {
+    WINDOW_STORE_READERS.fetch_sub(1, std::sync::atomic::Ordering::Release);
+  }
+}
+
 pub(crate) enum WindowsRead<'a> {
-  Borrowed(std::cell::Ref<'a, BTreeMap<WindowId, WindowWrapper>>),
-  Recovered(&'a BTreeMap<WindowId, WindowWrapper>),
+  // Field order matters: the borrow is released before the count drops.
+  Borrowed(
+    std::cell::Ref<'a, BTreeMap<WindowId, WindowWrapper>>,
+    WindowStoreReaderCount,
+  ),
+  Recovered(&'a BTreeMap<WindowId, WindowWrapper>, WindowStoreReaderCount),
   Skipped(std::cell::Ref<'static, BTreeMap<WindowId, WindowWrapper>>),
 }
 
@@ -250,8 +272,8 @@ impl<'a> std::ops::Deref for WindowsRead<'a> {
 
   fn deref(&self) -> &Self::Target {
     match self {
-      Self::Borrowed(windows) => windows,
-      Self::Recovered(windows) => windows,
+      Self::Borrowed(windows, _) => windows,
+      Self::Recovered(windows, _) => windows,
       Self::Skipped(windows) => windows,
     }
   }
@@ -262,7 +284,7 @@ pub(crate) fn win_borrow<'a>(
   ctx: &'static str,
 ) -> WindowsRead<'a> {
   match cell.try_borrow() {
-    Ok(windows) => WindowsRead::Borrowed(windows),
+    Ok(windows) => WindowsRead::Borrowed(windows, WindowStoreReaderCount::new()),
     Err(_) => {
       if WINDOW_STORE_WRITERS.load(std::sync::atomic::Ordering::Acquire) > 0 {
         // A real writer is live, so the map may be half-updated right now.
@@ -276,8 +298,10 @@ pub(crate) fn win_borrow<'a>(
           "window store borrow flag is stuck with no writer (first seen at {ctx}); reading the map directly from now on"
         );
       }
-      // SAFETY: no mutable borrow is outstanding, see the note above.
-      WindowsRead::Recovered(unsafe { &*cell.as_ptr() })
+      // SAFETY: no mutable borrow is outstanding, see the note above. The count
+      // keeps `win_insert_window` from writing through its own raw pointer while
+      // this reference is alive.
+      WindowsRead::Recovered(unsafe { &*cell.as_ptr() }, WindowStoreReaderCount::new())
     }
   }
 }
@@ -322,6 +346,112 @@ pub(crate) fn win_borrow_mut<'a>(
   let _count = WindowStoreWriterCount::new();
   let inner = cell.borrow_mut();
   WindowsWrite { _count, inner }
+}
+
+/// Like [`win_borrow_mut`], but gives up instead of panicking when the store is
+/// already borrowed. The writer is counted for the whole attempt, so a concurrent
+/// [`win_borrow`] never mistakes this for a stuck flag.
+pub(crate) fn win_try_borrow_mut<'a>(
+  cell: &'a RefCell<BTreeMap<WindowId, WindowWrapper>>,
+) -> Option<WindowsWrite<'a>> {
+  let _count = WindowStoreWriterCount::new();
+  match cell.try_borrow_mut() {
+    Ok(inner) => Some(WindowsWrite { _count, inner }),
+    Err(_) => None,
+  }
+}
+
+thread_local! {
+  /// Windows that were built while the store was borrowed. Drained by
+  /// [`win_flush_pending_inserts`] on the next pass through the event loop.
+  static PENDING_WINDOW_INSERTS: RefCell<Vec<(WindowId, WindowWrapper)>> =
+    RefCell::new(Vec::new());
+}
+
+/// Puts a freshly created window into the store, or parks it until the store is
+/// free again.
+///
+/// This used to be `loop { if let Ok(mut w) = cell.try_borrow_mut() { .. } }` with
+/// no pause and no way out. Creating a window runs a nested event loop on macOS, so
+/// the store can still be read further up the stack; the borrow then never clears
+/// and that loop pinned the main thread at 100% CPU until the app was killed.
+/// Parking the window costs one event loop pass and cannot hang.
+pub(crate) fn win_insert_window(
+  cell: &RefCell<BTreeMap<WindowId, WindowWrapper>>,
+  window_id: WindowId,
+  window: WindowWrapper,
+) {
+  if let Some(mut windows) = win_try_borrow_mut(cell) {
+    let replaced = windows.insert(window_id, window);
+    // Dropping a window can run a nested event loop, so let go of the borrow first.
+    drop(windows);
+    drop(replaced);
+    return;
+  }
+
+  // Nobody is actually using the store, so the borrow flag is stuck (the bug this
+  // fork already works around for reads). Parking would never resolve, because
+  // nothing will ever clear the flag.
+  if !window_store_in_use() {
+    static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+      log::error!(
+        "window store borrow flag is stuck with no reader or writer; inserting windows directly from now on"
+      );
+    }
+    // SAFETY: no borrow is outstanding, see the check above.
+    unsafe { &mut *cell.as_ptr() }.insert(window_id, window);
+    return;
+  }
+
+  log::warn!("window store is borrowed while inserting a new window; deferring the insert");
+  PENDING_WINDOW_INSERTS.with(|pending| match pending.try_borrow_mut() {
+    Ok(mut pending) => pending.push((window_id, window)),
+    // Reentrant call from inside a flush: the window is dropped rather than leaked
+    // into a queue nobody drains.
+    Err(_) => log::error!("cannot queue a new window; dropping it"),
+  });
+}
+
+/// Whether a real borrow of the window store is live right now. A borrowed store
+/// with neither reader nor writer means the `RefCell` flag is stuck.
+fn window_store_in_use() -> bool {
+  WINDOW_STORE_WRITERS.load(std::sync::atomic::Ordering::Acquire) > 0
+    || WINDOW_STORE_READERS.load(std::sync::atomic::Ordering::Acquire) > 0
+}
+
+/// Whether any window is still waiting to be inserted.
+pub(crate) fn win_has_pending_inserts() -> bool {
+  PENDING_WINDOW_INSERTS
+    .with(|pending| pending.try_borrow().map(|pending| !pending.is_empty()))
+    .unwrap_or(false)
+}
+
+/// Inserts everything [`win_insert_window`] had to park. Does nothing while the
+/// store is still borrowed; the next pass tries again.
+pub(crate) fn win_flush_pending_inserts(cell: &RefCell<BTreeMap<WindowId, WindowWrapper>>) {
+  if !win_has_pending_inserts() {
+    return;
+  }
+
+  let Some(mut windows) = win_try_borrow_mut(cell) else {
+    return;
+  };
+
+  let parked = PENDING_WINDOW_INSERTS.with(|pending| match pending.try_borrow_mut() {
+    Ok(mut pending) => std::mem::take(&mut *pending),
+    Err(_) => Vec::new(),
+  });
+
+  let mut replaced = Vec::new();
+  for (window_id, window) in parked {
+    log::info!("inserting a deferred window into the store");
+    if let Some(old) = windows.insert(window_id, window) {
+      replaced.push(old);
+    }
+  }
+  drop(windows);
+  drop(replaced);
 }
 
 pub(crate) fn send_user_message<T: UserEvent>(
@@ -3260,6 +3390,9 @@ fn handle_user_message<T: UserEvent>(
     window_id_map,
     windows,
   } = context;
+
+  crate::win_flush_pending_inserts(&windows.0);
+
   match message {
     Message::Task(task) => task(),
     #[cfg(target_os = "macos")]
@@ -3974,13 +4107,7 @@ fn handle_user_message<T: UserEvent>(
       }
     }
     Message::CreateWindow(window_id, handler) => match handler(event_loop) {
-      // wait for borrow_mut to be available - on Windows we might poll for the window to be inserted
-      Ok(webview) => loop {
-        if let Ok(mut windows) = windows.0.try_borrow_mut() {
-          windows.insert(window_id, webview);
-          break;
-        }
-      },
+      Ok(webview) => crate::win_insert_window(&windows.0, window_id, webview),
       Err(e) => {
         log::error!("{e}");
       }
@@ -4070,6 +4197,16 @@ fn handle_event_loop<T: UserEvent>(
   } = context;
   if *control_flow != ControlFlow::Exit {
     *control_flow = ControlFlow::Wait;
+  }
+
+  crate::win_flush_pending_inserts(&windows.0);
+  // A parked window must not sit there until some unrelated event happens to wake
+  // the loop. `Poll` would do it, but that is a busy loop: an outer borrow only
+  // clears once its frame unwinds, and until then every pass would burn a core.
+  if crate::win_has_pending_inserts() && *control_flow == ControlFlow::Wait {
+    *control_flow = ControlFlow::WaitUntil(
+      std::time::Instant::now() + std::time::Duration::from_millis(16),
+    );
   }
 
   match event {

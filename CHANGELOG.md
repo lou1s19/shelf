@@ -24,6 +24,55 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-08-21 (App hing sich beim Fenster-Erzeugen auf)
+
+Shelf blieb im Betrieb stehen: keine Reaktion mehr, ein Kern dauerhaft auf
+100 Prozent, nur noch abschießbar. Ausgelöst hat es ein Screenshot, der per
+Drag-and-Drop zurück in die App gezogen wurde. Der Import öffnet dafür ein
+Editor-Fenster, und genau beim Eintragen dieses Fensters blieb die App hängen.
+
+- **Ursache: eine Endlosschleife ohne Ausstieg in `vendor/tauri-runtime-wry`.**
+  `Message::CreateWindow` trug das fertige Fenster so in den Fensterspeicher ein:
+  `loop { if let Ok(mut w) = windows.0.try_borrow_mut() { .. break } }`. Kein
+  Zeitlimit, keine Pause. War die Sperre in dem Moment vergeben, drehte die
+  Schleife auf dem Haupt-Thread, bis die App abgeschossen wurde. Das Erzeugen
+  eines Fensters fährt auf macOS einen verschachtelten Event-Loop, der
+  Fensterspeicher kann also weiter oben im Stack noch gelesen werden; der Borrow
+  wird dann erst frei, wenn diese Schleife endet, und die endet nie.
+- **Beleg, nicht Vermutung.** Der Bericht
+  `/Library/Logs/DiagnosticReports/Shelf_2026-08-21-122500_*.cpu_resource.diag`
+  zeigt 90 Sekunden CPU in 90 Sekunden, "unresponsive for 84 seconds", und einen
+  Stack, der in `handle_event_loop` direkt hinter dem Sprung nach
+  `handle_user_message` steht. Der einzige tiefere Frame ist `Arc::deref`, mit
+  9 von 29 Proben. Das passt genau auf `windows.0` in dieser Schleife, denn
+  `windows` ist ein `Arc<WindowsStore>` und wird pro Durchlauf dereferenziert.
+  Der Zeitpunkt deckt sich auf die Sekunde mit `Starting image import` im
+  App-Log. Die Schleife war die einzige Endlosschleife in `handle_user_message`.
+- **Fix: parken statt warten.** Neu sind `win_try_borrow_mut` (nimmt die
+  Schreibsperre oder gibt auf, statt zu paniken, und zählt den Schreiber weiter
+  mit, damit `win_borrow` es nicht fälschlich für eine hängende Flagge hält),
+  `win_insert_window` und `win_flush_pending_inserts`. Ist der Speicher belegt,
+  wandert das Fenster in eine Warteschlange und wird beim nächsten Durchlauf
+  eingetragen. Kosten: ein Event-Loop-Durchlauf. Hängen kann es nicht mehr.
+  Geleert wird die Warteschlange am Anfang von `handle_event_loop` und von
+  `handle_user_message`.
+- **Bekannte Einschränkung des Fixes.** Ein geparktes Fenster gilt für Tauri
+  schon als erzeugt, steht aber noch nicht im Speicher. Kommt im selben Durchlauf
+  sofort ein `show` oder ein Getter dafür, findet der die ID nicht und läuft ins
+  Leere. Das trifft nur den Ausnahmefall, in dem der Speicher gerade wirklich
+  benutzt wird, und es wird als Warnung geloggt. Sauber wäre, das Erzeugen des
+  Fensters nicht mehr unter fremdem Borrow laufen zu lassen; das ist ein Umbau
+  von Tauris Fensterverwaltung und steht hier bewusst nicht drin.
+- **Nebenbei mitgenommen:** verdrängte Fenster werden erst nach Freigabe der
+  Sperre fallen gelassen. Das Aufräumen eines Fensters kann selbst wieder einen
+  verschachtelten Event-Loop fahren, und das während gehaltener Sperre wäre
+  derselbe Fehler nochmal.
+- **Auch repariert: `scripts/install-shelf.sh release` lief nie.** macOS liefert
+  bash 3.2, dort zählt ein leeres Array unter `set -u` als nicht gesetzt, und
+  `BUILD_FLAGS=()` für den Release-Build ließ das Skript sofort mit
+  `BUILD_FLAGS[@]: unbound variable` aussteigen. Jetzt wird das Array nur
+  expandiert, wenn es Einträge hat.
+
 ## 2026-08-20 (Speichern und Export bei Screenshots repariert)
 
 Drei Fehler, die zusammen dafür sorgten, dass ein Screenshot nur noch über
