@@ -368,6 +368,33 @@ thread_local! {
     RefCell::new(Vec::new());
 }
 
+/// Runs `f` with mutable access to the window store.
+///
+/// Returns `None` when a real borrow is live, which the caller has to retry later.
+/// A store that is borrowed with neither reader nor writer is the stuck flag this
+/// fork already works around for reads, and is written to directly.
+fn with_window_store_mut<R>(
+  cell: &RefCell<BTreeMap<WindowId, WindowWrapper>>,
+  f: impl FnOnce(&mut BTreeMap<WindowId, WindowWrapper>) -> R,
+) -> Option<R> {
+  if let Some(mut windows) = win_try_borrow_mut(cell) {
+    return Some(f(&mut windows));
+  }
+
+  if window_store_in_use() {
+    return None;
+  }
+
+  static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+  if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+    log::error!(
+      "window store borrow flag is stuck with no reader or writer; writing the map directly from now on"
+    );
+  }
+  // SAFETY: no borrow is outstanding, see the check above.
+  Some(f(unsafe { &mut *cell.as_ptr() }))
+}
+
 /// Puts a freshly created window into the store, or parks it until the store is
 /// free again.
 ///
@@ -381,29 +408,19 @@ pub(crate) fn win_insert_window(
   window_id: WindowId,
   window: WindowWrapper,
 ) {
-  if let Some(mut windows) = win_try_borrow_mut(cell) {
-    let replaced = windows.insert(window_id, window);
-    // Dropping a window can run a nested event loop, so let go of the borrow first.
-    drop(windows);
+  let mut window = Some(window);
+  // The replaced window is dropped after the borrow is released: tearing a window
+  // down can itself run a nested event loop.
+  let replaced = with_window_store_mut(cell, |windows| {
+    windows.insert(window_id, window.take().expect("window is taken once"))
+  });
+
+  if let Some(replaced) = replaced {
     drop(replaced);
     return;
   }
 
-  // Nobody is actually using the store, so the borrow flag is stuck (the bug this
-  // fork already works around for reads). Parking would never resolve, because
-  // nothing will ever clear the flag.
-  if !window_store_in_use() {
-    static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
-      log::error!(
-        "window store borrow flag is stuck with no reader or writer; inserting windows directly from now on"
-      );
-    }
-    // SAFETY: no borrow is outstanding, see the check above.
-    unsafe { &mut *cell.as_ptr() }.insert(window_id, window);
-    return;
-  }
-
+  let window = window.expect("window is untouched when the store was busy");
   log::warn!("window store is borrowed while inserting a new window; deferring the insert");
   PENDING_WINDOW_INSERTS.with(|pending| match pending.try_borrow_mut() {
     Ok(mut pending) => pending.push((window_id, window)),
@@ -434,24 +451,37 @@ pub(crate) fn win_flush_pending_inserts(cell: &RefCell<BTreeMap<WindowId, Window
     return;
   }
 
-  let Some(mut windows) = win_try_borrow_mut(cell) else {
-    return;
-  };
-
   let parked = PENDING_WINDOW_INSERTS.with(|pending| match pending.try_borrow_mut() {
     Ok(mut pending) => std::mem::take(&mut *pending),
     Err(_) => Vec::new(),
   });
-
-  let mut replaced = Vec::new();
-  for (window_id, window) in parked {
-    log::info!("inserting a deferred window into the store");
-    if let Some(old) = windows.insert(window_id, window) {
-      replaced.push(old);
-    }
+  if parked.is_empty() {
+    return;
   }
-  drop(windows);
-  drop(replaced);
+
+  let mut parked = Some(parked);
+  let replaced = with_window_store_mut(cell, |windows| {
+    let mut replaced = Vec::new();
+    for (window_id, window) in parked.take().expect("parked is taken once") {
+      log::info!("inserting a deferred window into the store");
+      if let Some(old) = windows.insert(window_id, window) {
+        replaced.push(old);
+      }
+    }
+    replaced
+  });
+
+  match replaced {
+    Some(replaced) => drop(replaced),
+    // Still busy. Put them back so the next pass retries instead of losing them.
+    None => PENDING_WINDOW_INSERTS.with(|pending| {
+      if let Ok(mut pending) = pending.try_borrow_mut() {
+        let mut restored = parked.take().expect("parked is untouched when busy");
+        restored.append(&mut pending);
+        *pending = restored;
+      }
+    }),
+  }
 }
 
 pub(crate) fn send_user_message<T: UserEvent>(
