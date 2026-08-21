@@ -31,13 +31,26 @@ case "$MODE" in
 	*) echo "usage: $0 [debug|release]" >&2; exit 2 ;;
 esac
 
+# A fresh clone has no sidecars, and tauri only fails once it is deep into the
+# Rust build. Build them up front instead.
+TRIPLE="$(rustc -vV | sed -n 's|host: ||p')"
+for SIDECAR in cap-muxer cap-cli cap-exporter; do
+	if [ ! -f "$REPO/apps/desktop/src-tauri/binaries/$SIDECAR-$TRIPLE" ]; then
+		echo "==> building sidecars (cap-muxer, cap-cli, cap-exporter)"
+		bash "$REPO/scripts/build-desktop-binaries.sh"
+		break
+	fi
+done
+
 echo "==> building ($MODE)"
 cd "$REPO"
 # The build log goes to a file rather than the terminal, but a failure has to
 # stop here. It used to end in `|| true` with only the last five lines shown, so
 # a broken build installed the previous bundle and still reported success.
 BUILD_LOG="$(mktemp -t shelf-build)"
-if ! pnpm --dir apps/desktop tauri build "${BUILD_FLAGS[@]}" \
+# macOS ships bash 3.2, where an empty array under `set -u` counts as unbound.
+# The release build passes no flags, so expand it only when it has entries.
+if ! pnpm --dir apps/desktop tauri build ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
 	--config src-tauri/tauri.prod.conf.json >"$BUILD_LOG" 2>&1; then
 	echo "==> build failed, nothing installed" >&2
 	tail -40 "$BUILD_LOG" >&2
