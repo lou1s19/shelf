@@ -1,4 +1,3 @@
-import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { createSignal } from "solid-js";
 import toast from "solid-toast";
@@ -156,10 +155,15 @@ export function useScreenshotExport() {
 			if (destination === "file") {
 				const buffer = await blob.arrayBuffer();
 				const uint8Array = new Uint8Array(buffer);
-				const savePath = await save({
-					filters: [{ name: "PNG Image", extensions: ["png"] }],
-					defaultPath: `${editorCtx.prettyName}.png`,
-				});
+				// Not the dialog plugin's `save()`: it opens the panel without making
+				// Shelf the active application first. As a menu bar app Shelf often is
+				// not active, and macOS then never puts the panel on screen. The promise
+				// stays pending, `isExporting` stays true, and every later save or copy
+				// returns right at the top. `saveFileDialog` activates the app first.
+				const savePath = await commands.saveFileDialog(
+					`${editorCtx.prettyName}.png`,
+					"png",
+				);
 				if (savePath) {
 					await writeFile(savePath, uint8Array);
 					toast.success("Screenshot saved!");

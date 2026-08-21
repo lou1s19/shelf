@@ -216,6 +216,10 @@ function createScreenshotEditorContext() {
 	const [isRenderReady, setIsRenderReady] = createSignal(false);
 	const [isImageFileReady, setIsImageFileReady] = createSignal(false);
 	let wsRef: WebSocket | null = null;
+	let wsDisposed = false;
+	let wsReconnectTimeout: ReturnType<typeof setTimeout> | undefined;
+	let wsReconnectAttempt = 0;
+	const WS_MAX_RECONNECT_ATTEMPTS = 8;
 
 	const [editorInstance] = createResource(async () => {
 		const perfStart = performance.now();
@@ -290,11 +294,9 @@ function createScreenshotEditorContext() {
 			loadImage(imagePath);
 		}
 
-		const ws = new WebSocket(instance.framesSocketUrl);
-		wsRef = ws;
-		ws.binaryType = "arraybuffer";
 		const wsFirstFrame = { value: true };
-		ws.onmessage = async (event) => {
+
+		const onFrameMessage = async (event: MessageEvent) => {
 			const buffer = event.data as ArrayBuffer;
 			const frameStart = performance.now();
 
@@ -371,6 +373,14 @@ function createScreenshotEditorContext() {
 				const imageData = new ImageData(imagePixels, width, height);
 				const bitmap = await createImageBitmap(imageData);
 				const existing = latestFrame();
+				// `createImageBitmap` is async, so two frames can be in flight at once
+				// and finish out of order, a reconnect makes that more likely. An older
+				// revision must never win: the preview would fall behind the edits and
+				// the export would wait for a revision that has already been through.
+				if (existing && revision < existing.revision) {
+					bitmap.close();
+					return;
+				}
 				if (existing?.bitmap && existing.bitmap !== bitmap) {
 					existing.bitmap.close();
 				}
@@ -386,6 +396,47 @@ function createScreenshotEditorContext() {
 			} catch {}
 		};
 
+		// The preview is the only thing that keeps the editor in step with the
+		// config, so a socket that dies must not stay dead: without this the
+		// webview would hold on to its last frame forever, the preview would stop
+		// following the edits, and every export would wait for a revision that can
+		// no longer arrive. On a fresh connection the server replays the current
+		// frame, so reconnecting fully recovers.
+		const connect = () => {
+			if (wsDisposed) return;
+
+			const ws = new WebSocket(instance.framesSocketUrl);
+			wsRef = ws;
+			ws.binaryType = "arraybuffer";
+			ws.onmessage = (event) => {
+				wsReconnectAttempt = 0;
+				void onFrameMessage(event);
+			};
+			ws.onclose = () => {
+				if (wsDisposed || wsRef !== ws) return;
+				wsRef = null;
+
+				// A server that stays gone must not be hammered: the delay grows and
+				// the attempts stop, so a disposed editor instance cannot leave the
+				// window in a permanent reconnect loop.
+				if (wsReconnectAttempt >= WS_MAX_RECONNECT_ATTEMPTS) {
+					console.error(
+						"[screenshot-editor] preview socket stayed closed, giving up",
+					);
+					return;
+				}
+
+				const delay = Math.min(250 * 2 ** wsReconnectAttempt, 4000);
+				wsReconnectAttempt += 1;
+				console.warn(
+					`[screenshot-editor] preview socket closed, reconnecting in ${delay}ms`,
+				);
+				wsReconnectTimeout = setTimeout(connect, delay);
+			};
+		};
+
+		connect();
+
 		return instance;
 	});
 
@@ -398,6 +449,11 @@ function createScreenshotEditorContext() {
 	);
 
 	onCleanup(() => {
+		wsDisposed = true;
+		if (wsReconnectTimeout !== undefined) {
+			clearTimeout(wsReconnectTimeout);
+			wsReconnectTimeout = undefined;
+		}
 		const frame = latestFrame();
 		if (frame?.bitmap) {
 			frame.bitmap.close();

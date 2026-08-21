@@ -2713,7 +2713,9 @@ async fn copy_file_to_path(app: AppHandle, src: String, dst: String) -> Result<(
 async fn copy_file_to_path_inner(app: AppHandle, src: String, dst: String) -> Result<(), String> {
     info!(%src, %dst, "Attempting to copy file");
 
-    let is_screenshot = src.contains("screenshots/");
+    // Windows separates with backslashes, so matching only on "screenshots/" would
+    // send a screenshot through the video validation and reject it after ten seconds.
+    let is_screenshot = src.contains("screenshots/") || src.contains("screenshots\\");
     let is_gif = src.ends_with(".gif") || dst.ends_with(".gif");
 
     let src_path = std::path::Path::new(&src);
@@ -3402,25 +3404,68 @@ async fn list_system_fonts() -> Vec<String> {
 
 #[tauri::command]
 #[specta::specta]
-#[instrument(skip(app))]
+#[instrument(skip(window))]
 async fn save_file_dialog(
-    app: AppHandle,
+    window: tauri::Window,
     file_name: String,
     file_type: String,
 ) -> Result<Option<String>, String> {
     run_command_safely(
         "save_file_dialog",
-        save_file_dialog_inner(app, file_name, file_type),
+        save_file_dialog_inner(window, file_name, file_type),
     )
     .await
 }
 
+/// Shelf lives in the menu bar, so it is often not the active application when a
+/// window asks for a save location. `rfd` then falls back to `NSApp.mainWindow`
+/// (nil while inactive) or the first window it can find, and hangs the save panel
+/// on something the user cannot see: the dialog never appears and the promise
+/// never settles. Activating the app and naming the asking window as the parent
+/// puts the sheet where it belongs.
+#[cfg(target_os = "macos")]
+fn activate_app_for_dialog(app: &AppHandle) {
+    use objc2_app_kit::{NSApplicationActivationOptions, NSRunningApplication};
+
+    let _ = app.run_on_main_thread(|| {
+        if let Some(current_app) = unsafe {
+            NSRunningApplication::runningApplicationWithProcessIdentifier(std::process::id() as _)
+        } {
+            unsafe {
+                current_app
+                    .activateWithOptions(NSApplicationActivationOptions::ActivateIgnoringOtherApps);
+            }
+        }
+    });
+}
+
+/// The dialog plugin's own `save` command widens the filesystem scope to the file
+/// the user picked, so the webview may write it even when it sits outside the
+/// configured scope (an external volume, another drive). This command has to do
+/// the same, otherwise picking such a target succeeds and the write right after
+/// it fails.
+fn allow_picked_file(window: &tauri::Window, path: &std::path::Path) {
+    use tauri_plugin_fs::FsExt;
+
+    if let Some(scope) = window.try_fs_scope()
+        && let Err(error) = scope.allow_file(path)
+    {
+        warn!(error = %error, "Could not widen the file scope to the chosen file");
+    }
+
+    if let Err(error) = window.state::<tauri::scope::Scopes>().allow_file(path) {
+        warn!(error = %error, "Could not widen the asset scope to the chosen file");
+    }
+}
+
 async fn save_file_dialog_inner(
-    app: AppHandle,
+    window: tauri::Window,
     file_name: String,
     file_type: String,
 ) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
+
+    let app = window.app_handle().clone();
 
     info!(file_name, file_type, "Save file dialog requested");
 
@@ -3449,8 +3494,12 @@ async fn save_file_dialog_inner(
     // exit event slip through before the export session guard incremented.
     let (tx, rx) = tokio::sync::oneshot::channel();
 
+    #[cfg(target_os = "macos")]
+    activate_app_for_dialog(&app);
+
     app.dialog()
         .file()
+        .set_parent(&window)
         .set_title("Save File")
         .set_file_name(file_name)
         .add_filter(name, &[extension])
@@ -3465,6 +3514,9 @@ async fn save_file_dialog_inner(
     match rx.await {
         Ok(result) => {
             info!(path = ?result, "Save file dialog completed");
+            if let Some(path) = &result {
+                allow_picked_file(&window, std::path::Path::new(path));
+            }
             Ok(result)
         }
         Err(e) => {

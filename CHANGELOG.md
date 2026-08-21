@@ -24,6 +24,43 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-08-20 (Speichern und Export bei Screenshots repariert)
+
+Drei Fehler, die zusammen dafür sorgten, dass ein Screenshot nur noch über
+Kopieren oder Herausziehen aus der App kam.
+
+- **Der Speichern-Dialog im Screenshot-Editor erschien nie.** Shelf ist eine
+  Menüleisten-App und beim Klick auf Speichern oft nicht die aktive Anwendung.
+  macOS legt das Bedienfeld dann nicht auf den Bildschirm: gemessen am laufenden
+  Programm existierte weder ein Fenster noch ein Sheet, das Versprechen im
+  Frontend wurde nie eingelöst, `isExporting` blieb dauerhaft `true`. Danach war
+  auch **Kopieren** tot, weil `exportImage` gleich am Anfang aussteigt, wenn ein
+  Export zu laufen scheint. Genau das war der gemeldete Fehler. Nach dem Fix
+  hängt das Sheet sichtbar am Editorfenster.
+  `save_file_dialog` in `lib.rs` aktiviert die App vorher, nennt das aufrufende
+  Fenster als Elternfenster und weitet den Datei-Scope auf die gewählte Datei aus
+  (das machte vorher das Dialog-Plugin). `export.rs` macht dasselbe für den
+  Video-Export, und `useScreenshotExport.ts` benutzt jetzt dieses Kommando statt
+  `save()` aus dem Dialog-Plugin.
+- **Der Export-Knopf auf der Pin-Karte tat nichts.** Bei Screenshots zeigt
+  `media.path` auf `<Name>.cap/original.png`, `get_recording_meta` erwartet aber
+  den `.cap`-Ordner, weil dort `recording-meta.json` liegt. Die Abfrage schlug
+  jedes Mal fehl, und die Mutation warf „Recording metadata not available",
+  bevor irgendetwas passierte. Der Fehler war unsichtbar: kein Toast, nur die
+  Fortschrittskarte, die nach zwei Sekunden wieder verschwand.
+  `recordings-overlay.tsx` löst den Bundle-Pfad jetzt selbst auf, nimmt bei
+  fehlenden Metadaten den Bundle-Namen als Vorschlag und loggt Fehler.
+- **Die Vorschau im Screenshot-Editor fror ein.** Ein Editor-Bild ist rund 11 MB.
+  Zwei davon kurz hintereinander sprengen die Puffer des Loopback-Sockets, macOS
+  antwortet mit `ENOBUFS` (os error 55). Das ist Gegendruck, wurde aber wie ein
+  Verbindungsabbruch behandelt und der Socket geschlossen, siehe
+  `shelf.log.2026-08-20`, 13:09:37. Danach blieb das letzte Bild stehen, die
+  Vorschau folgte den Änderungen nicht mehr, und ein Export konnte mit
+  „Preview is still updating" abbrechen. `frame_ws.rs` wiederholt solche Sendungen
+  jetzt (die ungeschriebenen Bytes bleiben in Tungstenites Puffer, ein erneutes
+  `flush` setzt dasselbe Bild fort), und `screenshot-editor/context.tsx` baut die
+  Verbindung neu auf, wenn sie doch abreißt.
+
 ## 2026-08-20 (Tray-Menü, Geräte in die Einstellungen, Cap-Reste raus)
 
 Das aufgeklappte Menü sah tot aus: nur Text, und die beiden PNG-Symbole waren

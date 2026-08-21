@@ -171,6 +171,64 @@ fn is_normal_socket_disconnect(error: &impl std::fmt::Debug) -> bool {
         || error.contains("Connection reset by peer")
 }
 
+/// How often a frame that ran into back pressure is pushed again before the
+/// socket is given up on. Six tries with the delays below wait 84 ms in total,
+/// far longer than the webview needs to drain a frame.
+const TRANSIENT_SEND_RETRIES: u32 = 6;
+
+/// Back pressure, not a broken connection.
+///
+/// A screenshot editor frame is around 11 MB. Sending two of them back to back
+/// can exhaust the kernel buffers of the loopback socket, and macOS answers with
+/// `ENOBUFS` (os error 55) instead of `EWOULDBLOCK`. Tungstenite hands that up as
+/// a plain IO error, and treating it like a disconnect froze the editor: the
+/// webview kept the last frame it had received and never saw another one, so the
+/// preview stopped following the edits and every export waited for a revision
+/// that could no longer arrive.
+fn is_transient_send_error(error: &impl std::fmt::Debug) -> bool {
+    let error = format!("{error:?}");
+    error.contains("No buffer space available")
+        || error.contains("code: 55")
+        || error.contains("WouldBlock")
+        || error.contains("Resource temporarily unavailable")
+        || error.contains("Interrupted")
+}
+
+/// Sends one frame, retrying while the socket only complains about back pressure.
+///
+/// Retrying is safe: tungstenite keeps whatever it could not write in its own out
+/// buffer and drains it on the next flush, so the retry continues the same frame
+/// rather than starting a second one.
+async fn send_frame_with_backpressure_retry(
+    socket: &mut axum::extract::ws::WebSocket,
+    packed: Vec<u8>,
+) -> Result<(), axum::Error> {
+    use axum::extract::ws::Message;
+    use futures::SinkExt;
+
+    let first_error = match socket.send(Message::Binary(packed)).await {
+        Ok(()) => return Ok(()),
+        Err(error) if is_transient_send_error(&error) => error,
+        Err(error) => return Err(error),
+    };
+
+    for attempt in 1..=TRANSIENT_SEND_RETRIES {
+        tokio::time::sleep(std::time::Duration::from_millis(4 * u64::from(attempt))).await;
+
+        match socket.flush().await {
+            Ok(()) => {
+                tracing::debug!(attempt, "Frame went out after back pressure");
+                return Ok(());
+            }
+            Err(error) if is_transient_send_error(&error) => continue,
+            Err(error) => return Err(error),
+        }
+    }
+
+    tracing::warn!("Frame still blocked after retries, giving up on the socket");
+    Err(first_error)
+}
+
 pub async fn create_watch_frame_ws(
     frame_rx: watch::Receiver<Option<std::sync::Arc<WSFrame>>>,
     subscribers: Arc<AtomicUsize>,
@@ -244,7 +302,7 @@ async fn create_watch_frame_ws_inner(
             };
             match packed {
                 Some((packed, frame_age)) => {
-                    if let Err(e) = socket.send(Message::Binary(packed)).await {
+                    if let Err(e) = send_frame_with_backpressure_retry(&mut socket, packed).await {
                         if is_normal_socket_disconnect(&e) {
                             tracing::debug!(
                                 "Initial frame send skipped because socket closed: {:?}",
@@ -302,7 +360,7 @@ async fn create_watch_frame_ws_inner(
                         let packed_len = packed.len();
 
                         let send_start = Instant::now();
-                        match socket.send(Message::Binary(packed)).await {
+                        match send_frame_with_backpressure_retry(&mut socket, packed).await {
                             Ok(()) => {
                                 let send_duration = send_start.elapsed();
                                 stats.record(
@@ -553,6 +611,25 @@ mod tests {
             u32::from_le_bytes(packed[30..34].try_into().unwrap()),
             NV12_VIDEO_FORMAT_MAGIC
         );
+    }
+
+    #[test]
+    fn treats_macos_buffer_exhaustion_as_back_pressure() {
+        // The shape macOS produced in the wild: os error 55 on a loopback socket
+        // carrying an 11 MB screenshot frame.
+        let error = std::io::Error::from_raw_os_error(55);
+        assert!(is_transient_send_error(&error));
+        assert!(is_transient_send_error(&std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            "would block"
+        )));
+    }
+
+    #[test]
+    fn a_closed_socket_is_not_back_pressure() {
+        let error = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "Broken pipe");
+        assert!(!is_transient_send_error(&error));
+        assert!(is_normal_socket_disconnect(&error));
     }
 
     #[test]

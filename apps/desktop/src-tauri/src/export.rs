@@ -172,7 +172,7 @@ impl ExportWorkerMode {
 struct ExportProgress(tauri::ipc::Channel<FramesRendered>);
 
 struct ExportSaveDialogRequest {
-    app: tauri::AppHandle,
+    window: tauri::Window,
     file_name: String,
     file_type: String,
 }
@@ -1097,7 +1097,7 @@ pub async fn export_video_to_file(
     file_type: String,
     editor: OptionalWindowEditorInstance,
 ) -> Result<PathBuf, String> {
-    let app = window.app_handle().clone();
+    let dialog_window = window.clone();
     let window_label = window.label().to_string();
     Box::pin(run_export_command(move || async move {
         let cancellation_guard = ExportCancellationGuard::new(
@@ -1110,7 +1110,7 @@ pub async fn export_video_to_file(
             editor,
             ExportProgress(progress),
             ExportSaveDialogRequest {
-                app,
+                window: dialog_window,
                 file_name,
                 file_type,
             },
@@ -1131,11 +1131,11 @@ async fn export_video_to_file_inner(
 ) -> Result<PathBuf, String> {
     let _session_guard = ExportSessionGuard::new();
     let ExportSaveDialogRequest {
-        app,
+        window,
         file_name,
         file_type,
     } = save_dialog;
-    let Some(save_path) = show_export_save_dialog(&app, file_name, file_type).await? else {
+    let Some(save_path) = show_export_save_dialog(&window, file_name, file_type).await? else {
         return Err("Save dialog cancelled".to_string());
     };
 
@@ -1255,10 +1255,11 @@ async fn export_video_inner(
 }
 
 async fn show_export_save_dialog(
-    app: &tauri::AppHandle,
+    window: &tauri::Window,
     file_name: String,
     file_type: String,
 ) -> Result<Option<PathBuf>, String> {
+    let app = window.app_handle();
     info!(file_name, file_type, "Save file dialog requested");
 
     let (name, extension) = match file_type.as_str() {
@@ -1273,9 +1274,15 @@ async fn show_export_save_dialog(
 
     info!(file_name, name, extension, "Showing save file dialog");
 
+    // Same reason as `save_file_dialog` in lib.rs: without an active app and a
+    // named parent window the panel is attached to a window nobody can see.
+    #[cfg(target_os = "macos")]
+    crate::activate_app_for_dialog(app);
+
     let (tx, rx) = tokio::sync::oneshot::channel();
     app.dialog()
         .file()
+        .set_parent(window)
         .set_title("Save File")
         .set_file_name(file_name)
         .add_filter(name, &[extension])
