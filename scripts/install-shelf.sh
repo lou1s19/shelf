@@ -34,10 +34,13 @@ esac
 # A fresh clone has no sidecars, and tauri only fails once it is deep into the
 # Rust build. Build them up front instead.
 TRIPLE="$(rustc -vV | sed -n 's|host: ||p')"
-if [ ! -f "$REPO/apps/desktop/src-tauri/binaries/cap-muxer-$TRIPLE" ]; then
-	echo "==> building sidecars (cap-muxer, cap-cli, cap-exporter)"
-	bash "$REPO/scripts/build-desktop-binaries.sh"
-fi
+for SIDECAR in cap-muxer cap-cli cap-exporter; do
+	if [ ! -f "$REPO/apps/desktop/src-tauri/binaries/$SIDECAR-$TRIPLE" ]; then
+		echo "==> building sidecars (cap-muxer, cap-cli, cap-exporter)"
+		bash "$REPO/scripts/build-desktop-binaries.sh"
+		break
+	fi
+done
 
 echo "==> building ($MODE)"
 cd "$REPO"

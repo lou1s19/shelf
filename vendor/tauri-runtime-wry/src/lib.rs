@@ -279,6 +279,19 @@ impl<'a> std::ops::Deref for WindowsRead<'a> {
   }
 }
 
+/// Non-blocking [`win_borrow`]: takes the borrow or gives up, and always counts
+/// the reader. Every read of the store has to go through a counted guard, or the
+/// stuck-flag recovery in [`with_window_store_mut`] could hand out a `&mut` next
+/// to a live `&`.
+pub(crate) fn win_try_borrow<'a>(
+  cell: &'a RefCell<BTreeMap<WindowId, WindowWrapper>>,
+) -> Option<WindowsRead<'a>> {
+  cell
+    .try_borrow()
+    .ok()
+    .map(|windows| WindowsRead::Borrowed(windows, WindowStoreReaderCount::new()))
+}
+
 pub(crate) fn win_borrow<'a>(
   cell: &'a RefCell<BTreeMap<WindowId, WindowWrapper>>,
   ctx: &'static str,
@@ -4943,7 +4956,7 @@ You may have it installed on another user account, but it is not available for t
             tauri_runtime::webview::NewWindowResponse::Create { window_id } => {
               let windows = &context.main_thread.windows.0;
               let webview = loop {
-                if let Some(webview) = windows.try_borrow().ok().and_then(|windows| {
+                if let Some(webview) = crate::win_try_borrow(windows).and_then(|windows| {
                   windows
                     .get(&window_id)
                     .map(|window| window.webviews.first().unwrap().clone())
