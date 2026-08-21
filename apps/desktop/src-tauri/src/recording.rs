@@ -1355,7 +1355,6 @@ pub fn format_project_name<'a>(
     recording_mode: RecordingMode,
     datetime: Option<chrono::DateTime<chrono::Local>>,
 ) -> String {
-    const DEFAULT_FILENAME_TEMPLATE: &str = "{target_name} ({target_kind}) {date} {time}";
     const MAX_TARGET_NAME_CHARS: usize = 180;
     let datetime = datetime.unwrap_or(chrono::Local::now());
 
@@ -1386,7 +1385,16 @@ pub fn format_project_name<'a>(
             .expect("Failed to build AhoCorasick automaton")
         };
     }
-    let haystack = template.unwrap_or(DEFAULT_FILENAME_TEMPLATE);
+    // Without a template of the user's own, the target name is only worth having
+    // for a window, where it names the app. For a display it used to put the
+    // monitor model in every file name, which says nothing about the content.
+    let default_template = match target_kind {
+        "Window" => "{target_name} {date} {time}",
+        "Area" => "Area {date} {time}",
+        _ if matches!(recording_mode, RecordingMode::Screenshot) => "Screenshot {date} {time}",
+        _ => "Recording {date} {time}",
+    };
+    let haystack = template.unwrap_or(default_template);
 
     // Get recording mode information
     let (recording_mode, mode) = match recording_mode {
@@ -3935,6 +3943,79 @@ pub fn remux_fragmented_recording_with_trigger(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    fn at_three_pm() -> chrono::DateTime<chrono::Local> {
+        use chrono::TimeZone;
+        chrono::Local
+            .with_ymd_and_hms(2026, 8, 21, 15, 5, 0)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_window_capture_is_named_after_the_window() {
+        assert_eq!(
+            format_project_name(
+                None,
+                "Safari",
+                "Window",
+                RecordingMode::Screenshot,
+                Some(at_three_pm())
+            ),
+            "Safari 2026-08-21 03:05 PM"
+        );
+    }
+
+    #[test]
+    fn a_display_capture_does_not_carry_the_monitor_name() {
+        assert_eq!(
+            format_project_name(
+                None,
+                "DELL P2421D (1)",
+                "Display",
+                RecordingMode::Screenshot,
+                Some(at_three_pm())
+            ),
+            "Screenshot 2026-08-21 03:05 PM"
+        );
+        assert_eq!(
+            format_project_name(
+                None,
+                "DELL P2421D (1)",
+                "Display",
+                RecordingMode::Studio,
+                Some(at_three_pm())
+            ),
+            "Recording 2026-08-21 03:05 PM"
+        );
+    }
+
+    #[test]
+    fn an_area_capture_is_named_after_the_area() {
+        assert_eq!(
+            format_project_name(
+                None,
+                "DELL P2421D (1)",
+                "Area",
+                RecordingMode::Screenshot,
+                Some(at_three_pm())
+            ),
+            "Area 2026-08-21 03:05 PM"
+        );
+    }
+
+    #[test]
+    fn a_template_of_the_users_own_still_wins() {
+        assert_eq!(
+            format_project_name(
+                Some("{target_name} ({target_kind})"),
+                "DELL P2421D (1)",
+                "Display",
+                RecordingMode::Screenshot,
+                Some(at_three_pm())
+            ),
+            "DELL P2421D (1) (Display)"
+        );
+    }
 
     fn click_event_with_state(time_ms: f64, down: bool) -> CursorClickEvent {
         CursorClickEvent {
