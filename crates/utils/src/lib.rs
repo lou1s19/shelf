@@ -44,13 +44,19 @@ pub fn ensure_dir(path: &PathBuf) -> Result<PathBuf, std::io::Error> {
 ///
 /// # Example
 ///
-/// ```rust
-/// let unique_name = ensure_unique_filename("My Recording.cap", &recordings_dir,);
+/// ```no_run
+/// use cap_utils::ensure_unique_filename;
+/// use std::path::Path;
+///
+/// let recordings_dir = Path::new("/tmp/recordings");
+/// let unique_name = ensure_unique_filename("My Recording.cap", recordings_dir)?;
 /// // If "My Recording.cap" exists, returns "My Recording (1).cap"
 /// // If that exists too, returns "My Recording (2).cap", etc.
 ///
-/// let unique_name = ensure_unique_filename("document.pdf", &documents_dir);
+/// let documents_dir = Path::new("/tmp/documents");
+/// let unique_name = ensure_unique_filename("document.pdf", documents_dir)?;
 /// // If "document.pdf" exists, returns "document (1).pdf"
+/// # Ok::<(), String>(())
 /// ```
 #[inline]
 pub fn ensure_unique_filename(
@@ -161,7 +167,7 @@ pub fn ensure_unique_filename_with_attempts(
 ///
 /// ## Examples
 ///
-/// ```
+/// ```text
 /// // Basic formats
 /// YYYY-MM-DD HH:mm → %Y-%m-%d %H:%M
 /// // Output: "2025-01-15 14:30"

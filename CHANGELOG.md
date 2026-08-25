@@ -55,6 +55,56 @@ nach einem Neustart der App ging es wieder. Branch
 - Geprüft: `cargo check -p cap-desktop` ohne Warnungen, `cargo test -p cap-desktop`
   141 Tests grün, Typecheck, Biome, `cargo fmt --check`.
 
+## 2026-08-25 (Die Test-Suite lief nie durch)
+
+Beim Prüfen der App fiel auf, dass `cargo test --workspace` gar nicht bis zum
+Ende kommt. Ursache waren Reste aus dem Löschen von Caps Cloud-Paketen: die
+Testdatei der CLI blieb stehen, die geprüften Befehle sind weg.
+
+- **Zwei Tests hingen für immer.** `auth_status_verifies_agent_credentials_with_the_server`
+  und `mcp_cancellation_stops_wait_polling` starten einen Mini-Server auf
+  127.0.0.1 und warten in `accept()` auf eine Anfrage der CLI. Die kommt nie,
+  weil `auth` und `mcp` gelöscht sind. Kein Timeout, der Lauf steht.
+- **15 Tests entfernt**, alle für Befehle, die es nicht mehr gibt (`auth`,
+  `caps`, `account`, `agents`, `upload`, `mcp`, S3). Einer davon war grün, aber
+  aus dem falschen Grund: `sharing_requires_one_visibility_flag` erwartet
+  Exit-Code 2 für eine falsche Flag-Kombination, und clap liefert dieselbe 2
+  auch für einen unbekannten Befehl. Der Test hat nichts geprüft.
+- **Vier Tests auf den Ist-Zustand umgestellt**: die Befehlslisten in
+  `help_succeeds_and_lists_commands` und `subcommand_help_succeeds`, der Name
+  im Startbildschirm (`shelf` statt `cap`) und das Guide-Manifest.
+- Ergebnis: 42 grün, 0 rot, kein Hänger. Vorher 38 grün, 17 rot, 2 endlos.
+- **Zwei Doctests in `crates/utils`** waren nie kompilierbar (fehlender Import,
+  freischwebende Variablen; der zweite Block war überhaupt kein Rust, sondern
+  Format-Beispiele). Erster jetzt ein echtes Beispiel, zweiter als `text`
+  ausgezeichnet.
+- **`test_needs_update` in `cap-rendering-skia`** prüfte nach `prepare()`, dass
+  kein Update nötig ist. `needs_update` vergleicht aber gegen `last_rendered_*`,
+  und die schreibt nur `record()`; der Kommentar am Ende von `prepare` sagt das
+  ausdrücklich. Der Test stammt aus der Zeit, als gegen `current_*` verglichen
+  wurde. Er läuft jetzt den echten Zyklus und prüft zusätzlich, dass `record`
+  ein Bild liefert.
+- **Codex-Gegencheck:** meldete einen Build-Fehler wegen `unused_must_use`.
+  Nachgemessen, stimmt nicht, `Option` ist nicht `#[must_use]`, nur `Result`;
+  der Test kompilierte und lief. Der Vorschlag, das Ergebnis zu prüfen, macht
+  den Test trotzdem besser und ist übernommen.
+
+- **Doctests von `cap-audio` abgeschaltet.** Seit Edition 2024 fasst rustdoc alle
+  Doctests einer Kiste zu einem Programm zusammen und startet es, auch wenn jedes
+  Beispiel `no_run` ist. Dieses Programm liegt in einem Temp-Ordner, und die
+  mitgelieferten ffmpeg-Bibliotheken sind als `@executable_path/../Frameworks/...`
+  eingebunden, also findet dyld sie dort nicht. `cargo test --workspace` endete
+  deshalb mit einem dyld-Fehler statt mit einem Ergebnis. Das einzige Beispiel der
+  Kiste ist `no_run` und lief ohnehin nie. Begründung steht in der `Cargo.toml`.
+
+Offen und bewusst nicht angefasst: `hardware_instant_recording` und
+`hardware_studio_recording` nehmen wirklich den Bildschirm auf und vergleichen
+die Videolänge mit der Aufnahmedauer. Im ersten Lauf schlugen sie fehl (29 Bilder
+in 6 Sekunden, Video 1,9 statt 6 Sekunden), im zweiten Lauf mit unverändertem
+Code waren sie grün. ScreenCaptureKit liefert Bilder nur bei Änderung, bei
+stillstehendem Bildschirm kommt zu wenig an. Kein Fehler in der App, aber das
+Ergebnis hängt davon ab, was während des Laufs auf dem Bildschirm passiert.
+
 ## 2026-08-21 (App hing sich beim Fenster-Erzeugen auf)
 
 Shelf blieb im Betrieb stehen: keine Reaktion mehr, ein Kern dauerhaft auf
