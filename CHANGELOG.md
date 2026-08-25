@@ -24,6 +24,37 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-08-25 (Hovern wählte den falschen Bildschirm aus)
+
+Louis: beim Hovern über einen Bildschirm wählte die Auswahl den anderen aus,
+nach einem Neustart der App ging es wieder. Branch
+`fix/overlay-stale-display-geometry`.
+
+- **Ursache:** Die Auswahl-Overlays werden zwischen zwei Aufnahmen nur versteckt,
+  nie geschlossen. Position und Größe bekommt so ein Fenster genau einmal, beim
+  Erzeugen, aus den Grenzen seines Displays. Ändert sich danach die Anordnung
+  (Monitor an- oder abgesteckt, Auflösung oder Skalierung geändert, macOS sortiert
+  die Displays um), liegt das Overlay von Display A über Display B. Geklickt wird
+  dann Display A, obwohl B unter der Maus liegt. Der Neustart half, weil dabei
+  alle Fenster neu erzeugt werden.
+- **Fix:** `sync_overlay_to_display` in `windows.rs` setzt vor jedem Anzeigen die
+  aktuellen Grenzen des Displays neu. Genau dasselbe hatte das Screenshot-Regal
+  (`RecordingsOverlay`) schon, dem Auswahl-Overlay fehlte es.
+- **Zweiter, kleinerer Anteil:** `isHoveredDisplay` steht in der URL des Fensters
+  und ist bei einem wiederverwendeten Overlay von der allerersten Öffnung. Im
+  Bereichs-Modus entschied dieser eingefrorene Wert, welcher Bildschirm den
+  Auswahlrahmen zeigt, solange noch kein Cursor-Ereignis eingetroffen war. Rust
+  schickt jetzt eine frische Position raus, bevor überhaupt ein Fenster sichtbar
+  wird.
+- **Codex-Gegencheck:** ein echter Fund, eingearbeitet. Der Windows-Zweig setzte
+  Größe und Position ohne die Verzögerung und Nachkontrolle, die der Erzeugungsweg
+  hat; bei gemischter Skalierung deckt das Overlay dann nur einen Teil des
+  Bildschirms ab.
+- **Nebenbei:** `pnpm exec biome check` ist wieder sauber. `vendor/` wird nicht
+  mehr mitgeprüft (fremder Code), und `capabilities/default.json` ist formatiert.
+- Geprüft: `cargo check -p cap-desktop` ohne Warnungen, `cargo test -p cap-desktop`
+  141 Tests grün, Typecheck, Biome, `cargo fmt --check`.
+
 ## 2026-08-21 (App hing sich beim Fenster-Erzeugen auf)
 
 Shelf blieb im Betrieb stehen: keine Reaktion mehr, ein Kern dauerhaft auf

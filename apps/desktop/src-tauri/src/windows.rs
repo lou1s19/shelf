@@ -130,6 +130,75 @@ pub fn show_overlay(window: &WebviewWindow) {
     let _ = window.show();
 }
 
+/// Re-applies a display's current bounds to the overlay window that belongs to it.
+///
+/// Target select overlays are only hidden between captures, never closed, so a
+/// window keeps the geometry its display had when the window was built. Once the
+/// arrangement changes (a monitor is plugged in or unplugged, resolution or
+/// scaling changes, macOS re-sorts the displays) the overlay can end up on top of
+/// a different screen than the one it reports, and hovering one screen highlights
+/// the other. Restarting the app used to be the only cure.
+pub async fn sync_overlay_to_display(window: &WebviewWindow, display: &scap_targets::Display) {
+    #[cfg(target_os = "macos")]
+    {
+        let Some(size) = display.logical_size() else {
+            return;
+        };
+        let position = display.raw_handle().logical_position();
+
+        let _ = window.set_position(tauri::LogicalPosition::new(position.x(), position.y()));
+        let _ = window.set_size(tauri::LogicalSize::new(size.width(), size.height()));
+    }
+
+    #[cfg(windows)]
+    {
+        let (Some(position), Some(logical_size), Some(physical_size)) = (
+            display.raw_handle().physical_position(),
+            display.logical_size(),
+            display.physical_size(),
+        ) else {
+            return;
+        };
+
+        // Same dance as the creation path: a logical size is converted with the
+        // scale factor of the monitor the window sits on *right now*, and the
+        // move is processed asynchronously. Re-apply the size after the move and
+        // verify it against the physical size the display actually reports,
+        // otherwise a mixed-DPI setup leaves the overlay covering part of the
+        // screen.
+        let _ = window.set_size(tauri::LogicalSize::new(
+            logical_size.width(),
+            logical_size.height(),
+        ));
+        let _ = window.set_position(tauri::PhysicalPosition::new(position.x(), position.y()));
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        match window.inner_size() {
+            Ok(actual) if physical_size.width() != actual.width as f64 => {
+                let _ = window.set_size(tauri::LogicalSize::new(
+                    logical_size.width(),
+                    logical_size.height(),
+                ));
+            }
+            Ok(_) => {}
+            Err(err) => warn!(%err, "Failed to read target select overlay inner size"),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let (Some(position), Some(size)) = (
+            display.raw_handle().physical_position(),
+            display.physical_size(),
+        ) else {
+            return;
+        };
+
+        let _ = window.set_position(tauri::PhysicalPosition::new(position.x(), position.y()));
+        let _ = window.set_size(tauri::LogicalSize::new(size.width(), size.height()));
+    }
+}
+
 fn hide_recording_windows(app: &AppHandle, restore_target_select_overlays: bool) {
     let focus_manager = app.try_state::<WindowFocusManager>();
 
@@ -1259,6 +1328,16 @@ impl ShowCapWindow {
             let monitor = CursorMonitorInfo::get();
             let _ = window.set_position(monitor.position(monitor.x, monitor.y));
             let _ = window.set_size(LogicalSize::new(monitor.width, monitor.height));
+        }
+
+        // Same reason as the recordings overlay above: a target select overlay is
+        // hidden between captures, never closed, so a reused window still sits
+        // where its display used to be.
+        if let Self::TargetSelectOverlay { display_id, .. } = self
+            && let Some(window) = self.id(app).get(app)
+            && let Some(display) = scap_targets::Display::from_id(display_id)
+        {
+            sync_overlay_to_display(&window, &display).await;
         }
 
         // TextPin is excluded like the other repositioning windows: it is hidden

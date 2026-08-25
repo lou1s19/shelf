@@ -12,7 +12,8 @@
 			"!**/queries.ts",
 			"!apps/desktop/src/utils/tauri.ts",
 			"!apps/desktop/src/global.d.ts",
-			"!packages/ui-solid/src/auto-imports.d.ts"
+			"!packages/ui-solid/src/auto-imports.d.ts",
+			"!vendor"
 		],
 		"ignoreUnknown": false
 	},
