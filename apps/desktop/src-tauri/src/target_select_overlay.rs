@@ -338,6 +338,24 @@ pub async fn update_camera_overlay_bounds(
     Ok(())
 }
 
+/// The frozen picture of this display, for the picker to show instead of the
+/// live screen.
+///
+/// Without it the picker shows what is on screen right now, where the hover the
+/// capture was meant to keep is already gone: the user would be selecting
+/// against one picture and receiving another. Returns `None` whenever nothing
+/// was frozen, which is the ordinary case for a video recording.
+#[specta::specta]
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn frozen_display_preview(app: AppHandle, display_id: String) -> Option<String> {
+    let path = app
+        .state::<crate::FrozenScreens>()
+        .preview_path(&display_id)?;
+
+    Some(path.to_string_lossy().into_owned())
+}
+
 #[specta::specta]
 #[tauri::command]
 #[instrument(skip(app, _state))]
@@ -351,6 +369,13 @@ pub async fn close_target_select_overlays(
 }
 
 pub fn close_target_select_overlay_windows(app: &AppHandle) {
+    // The picker is done, so a frozen display has either been used or was never
+    // needed. Either way it must not outlive the selection it belonged to: it is
+    // several megabytes, and a later screenshot must never silently reuse it.
+    if let Some(frozen) = app.try_state::<crate::FrozenScreens>() {
+        frozen.clear();
+    }
+
     let state = app.try_state::<WindowFocusManager>();
     let mut saw_overlay = false;
 
