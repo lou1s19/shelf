@@ -13,7 +13,7 @@ use crate::{
     App, ArcLock, general_settings,
     recording_settings::RecordingTargetMode,
     window_exclusion::WindowExclusion,
-    windows::{CapWindowId, ShowCapWindow, hide_overlay, show_overlay},
+    windows::{CapWindowId, ShowCapWindow, hide_overlay, show_overlay, sync_overlay_to_display},
 };
 use scap_targets::{
     Display, DisplayId, Window, WindowId,
@@ -103,6 +103,19 @@ pub async fn open_target_select_overlays(
         }
     }
 
+    let window_exclusions = general_settings::GeneralSettingsStore::get(&app)
+        .ok()
+        .flatten()
+        .map_or_else(general_settings::default_excluded_windows, |settings| {
+            settings.excluded_windows
+        });
+
+    // Reused overlays keep the webview state of the previous capture, including
+    // the `isHoveredDisplay` flag that was baked into their URL when they were
+    // built. Publishing one fresh sample before anything becomes visible means
+    // no overlay has to fall back to that stale flag.
+    emit_target_under_cursor(&app, focused_target.as_ref(), &window_exclusions);
+
     for display_id in &display_ids {
         let should_focus = display_id == &focus_display_id;
 
@@ -112,6 +125,14 @@ pub async fn open_target_select_overlays(
         .get(&app);
 
         if let Some(window) = existing_window {
+            // A reused overlay still carries the geometry of the display as it
+            // was when the window was built. Re-apply the display's current
+            // bounds before showing, otherwise the overlay can cover a screen it
+            // does not belong to after the arrangement changed.
+            if let Some(display) = Display::from_id(display_id) {
+                sync_overlay_to_display(&window, &display).await;
+            }
+
             show_overlay(&window);
 
             if should_focus {
@@ -155,13 +176,6 @@ pub async fn open_target_select_overlays(
         focus_target_select_overlay(&window);
     }
 
-    let window_exclusions = general_settings::GeneralSettingsStore::get(&app)
-        .ok()
-        .flatten()
-        .map_or_else(general_settings::default_excluded_windows, |settings| {
-            settings.excluded_windows
-        });
-
     let handle = tokio::spawn({
         let app = app.clone();
 
@@ -181,21 +195,7 @@ pub async fn open_target_select_overlays(
                         .unwrap_or_else(scap_targets::Window::get_topmost_at_cursor)
                 },
             ) {
-                let _ = TargetUnderCursor {
-                    display_id: display.map(|d| d.id()),
-                    window: window.and_then(|w| {
-                        if should_skip_window(&w, &window_exclusions) {
-                            return None;
-                        }
-
-                        Some(WindowUnderCursor {
-                            id: w.id(),
-                            bounds: w.display_relative_logical_bounds()?,
-                            app_name: w.owner_name()?,
-                        })
-                    }),
-                }
-                .emit(&app);
+                let _ = target_under_cursor_payload(display, window, &window_exclusions).emit(&app);
 
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
@@ -213,6 +213,42 @@ pub async fn open_target_select_overlays(
     state.register_escape(app.global_shortcut());
 
     Ok(())
+}
+
+fn target_under_cursor_payload(
+    display: Option<Display>,
+    window: Option<Window>,
+    window_exclusions: &[WindowExclusion],
+) -> TargetUnderCursor {
+    TargetUnderCursor {
+        display_id: display.map(|d| d.id()),
+        window: window.and_then(|w| {
+            if should_skip_window(&w, window_exclusions) {
+                return None;
+            }
+
+            Some(WindowUnderCursor {
+                id: w.id(),
+                bounds: w.display_relative_logical_bounds()?,
+                app_name: w.owner_name()?,
+            })
+        }),
+    }
+}
+
+fn emit_target_under_cursor(
+    app: &AppHandle,
+    focused_target: Option<&ScreenCaptureTarget>,
+    window_exclusions: &[WindowExclusion],
+) {
+    let display = focused_target
+        .map(|v| v.display())
+        .unwrap_or_else(Display::get_containing_cursor);
+    let window = focused_target
+        .map(|v| v.window().and_then(|id| Window::from_id(&id)))
+        .unwrap_or_else(Window::get_topmost_at_cursor);
+
+    let _ = target_under_cursor_payload(display, window, window_exclusions).emit(app);
 }
 
 fn finish_created_target_select_overlay(window: &WebviewWindow, should_focus: bool) {
@@ -302,6 +338,24 @@ pub async fn update_camera_overlay_bounds(
     Ok(())
 }
 
+/// The frozen picture of this display, for the picker to show instead of the
+/// live screen.
+///
+/// Without it the picker shows what is on screen right now, where the hover the
+/// capture was meant to keep is already gone: the user would be selecting
+/// against one picture and receiving another. Returns `None` whenever nothing
+/// was frozen, which is the ordinary case for a video recording.
+#[specta::specta]
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn frozen_display_preview(app: AppHandle, display_id: String) -> Option<String> {
+    let path = app
+        .state::<crate::FrozenScreens>()
+        .preview_path(&display_id)?;
+
+    Some(path.to_string_lossy().into_owned())
+}
+
 #[specta::specta]
 #[tauri::command]
 #[instrument(skip(app, _state))]
@@ -315,6 +369,13 @@ pub async fn close_target_select_overlays(
 }
 
 pub fn close_target_select_overlay_windows(app: &AppHandle) {
+    // The picker is done, so a frozen display has either been used or was never
+    // needed. Either way it must not outlive the selection it belonged to: it is
+    // several megabytes, and a later screenshot must never silently reuse it.
+    if let Some(frozen) = app.try_state::<crate::FrozenScreens>() {
+        frozen.clear();
+    }
+
     let state = app.try_state::<WindowFocusManager>();
     let mut saw_overlay = false;
 

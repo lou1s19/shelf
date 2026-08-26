@@ -3,6 +3,14 @@ name = "cap-audio"
 version = "0.1.0"
 edition = "2024"
 
+# Edition 2024 merges all doctests of a crate into one binary and runs it, even
+# when every example is `no_run`. That binary lands in a temp directory, and the
+# bundled ffmpeg libraries are linked as `@executable_path/../Frameworks/...`,
+# so it cannot start: `cargo test --workspace` ends in a dyld error instead of a
+# result. The crate's only example is `no_run` and was never executed anyway.
+[lib]
+doctest = false
+
 
 [dependencies]
 ffmpeg = { workspace = true }

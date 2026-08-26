@@ -24,6 +24,145 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-08-26 (Der Hover bleibt jetzt auf dem Screenshot)
+
+Louis: „ich bin mit meiner Maus auf etwas, ein Button als Beispiel, dann drücke
+ich Cmd+B für Area-Screenshot und der Hover geht weg." Er braucht den
+hervorgehobenen Zustand manchmal auf dem Bild.
+
+- **Das Problem ist eingebaut, nicht zufällig.** Ein Screenshot-Werkzeug
+  verändert durch sein eigenes Auswahl-Fenster genau den Bildschirm, den es
+  aufnehmen soll. Sobald das Overlay aufgeht, verliert das Fenster darunter die
+  Maus, der Button fällt in den Normalzustand zurück, ein Tooltip verschwindet
+  ganz. Aufgenommen wurde bisher erst nach dem Bestätigen der Auswahl, also viel
+  zu spät.
+- **Lösung: Screen Freeze**, wie bei CleanShot X und Shottr. Beim Drücken des
+  Kürzels wird der Bildschirm unter der Maus sofort aufgenommen, bevor
+  irgendetwas von Shelf sichtbar wird. Die Auswahl wird aus diesem Standbild
+  geschnitten.
+- **Nur der Bildschirm unter der Maus** wird eingefroren. Dort ist der Hover, und
+  ein volles Display sind mehrere Dutzend Megabyte. Auf jedem anderen Bildschirm
+  wird wie bisher live aufgenommen.
+- **Das Standbild wird auch angezeigt.** Erster Anlauf ohne Anzeige war
+  unbrauchbar: Louis sah beim Ziehen den lebenden Bildschirm ohne Hover, hielt es
+  für kaputt und brach zweimal mit Escape ab. Das Log zeigte das Einfrieren
+  sauber laufen (143 ms), aber keinen einzigen fertigen Screenshot. Seitdem
+  schreibt Shelf zusätzlich ein JPEG in den Temp-Ordner, das der Picker
+  bildschirmfüllend anzeigt. Gespeichert wird weiter aus dem verlustfreien
+  Original im Speicher.
+- **Skalierung aus dem Bild abgeleitet, nicht vom Display erfragt.** Bei einer
+  skalierten Auflösung („Mehr Fläche") meldet macOS weiter den Faktor 2, liefert
+  aber ein Bild, das nicht doppelt so breit ist wie die logische Größe. Auf einem
+  14-Zoll-MacBook läge der Ausschnitt damit fast 300 Pixel daneben. Sieben Tests
+  decken das ab, geprüft durch absichtliches Einbauen der falschen Rechnung.
+- **Kein Shelf-Fenster kann mit ins Bild.** Sichtbare eigene Overlays (Picker,
+  Regal, Occluder, Modus-Auswahl, Text-Pin) verhindern das Einfrieren ganz. Die
+  Liste ist jetzt eine gemeinsame Funktion, die auch `take_screenshot` benutzt,
+  damit die beiden Wege nicht auseinanderlaufen.
+- **Codex-Gegencheck dreimal gelaufen, jedes Mal mit echtem Fund:**
+  1. Windows-Zweig setzte Größe ohne DPI-Nachkontrolle.
+  2. Ein zweites Drücken des Kürzels bei offenem Picker fror den Picker mit ein.
+     Beim Nachgehen zeigte sich, dass es nicht nur den Picker betrifft, sondern
+     jedes sichtbare eigene Overlay.
+  3. **Der wichtigste:** Nach der ursprünglichen 15-Sekunden-Grenze zeigte der
+     Picker weiter das Standbild, schnitt aber live. Man wählte auf Bild A und
+     bekam Bild B. Die Grenze war nur sinnvoll, solange das Bild unsichtbar war;
+     mit der Anzeige ist sie überflüssig und schädlich. Sie ist ersatzlos raus.
+     Das Standbild lebt jetzt genau so lange wie der Picker, der es besitzt.
+- **Anzeige und Zuschnitt sind hart gekoppelt:** Lässt sich kein Vorschaubild
+  schreiben, wird das Standbild verworfen. Ohne etwas zu zeigen gibt es auch
+  nichts zu schneiden, sonst entstünde genau die Ungleichheit von oben.
+- **Aufräumen:** Vorschau-Dateien werden beim Schließen des Pickers gelöscht und
+  beim App-Start einmal durchgekehrt, falls ein früherer Lauf abgestürzt ist. Ein
+  volles Display kann alles zeigen, was gerade auf dem Schirm war.
+
+**Gemessen und bewusst offen:** Das Kürzel braucht jetzt rund 420 ms bis der
+Picker steht, davon etwa 290 ms allein für das JPEG. Vorher waren es rund 120 ms.
+Louis hat das so abgenommen. Wer es schneller haben will: ein Format, das nicht
+komprimiert (BMP), oder eine schnellere JPEG-Bibliothek wären die nächsten
+Schritte, beides ohne Einfluss auf die Bildqualität des Ergebnisses.
+
+## 2026-08-25 (Hovern wählte den falschen Bildschirm aus)
+
+Louis: beim Hovern über einen Bildschirm wählte die Auswahl den anderen aus,
+nach einem Neustart der App ging es wieder. Branch
+`fix/overlay-stale-display-geometry`.
+
+- **Ursache:** Die Auswahl-Overlays werden zwischen zwei Aufnahmen nur versteckt,
+  nie geschlossen. Position und Größe bekommt so ein Fenster genau einmal, beim
+  Erzeugen, aus den Grenzen seines Displays. Ändert sich danach die Anordnung
+  (Monitor an- oder abgesteckt, Auflösung oder Skalierung geändert, macOS sortiert
+  die Displays um), liegt das Overlay von Display A über Display B. Geklickt wird
+  dann Display A, obwohl B unter der Maus liegt. Der Neustart half, weil dabei
+  alle Fenster neu erzeugt werden.
+- **Fix:** `sync_overlay_to_display` in `windows.rs` setzt vor jedem Anzeigen die
+  aktuellen Grenzen des Displays neu. Genau dasselbe hatte das Screenshot-Regal
+  (`RecordingsOverlay`) schon, dem Auswahl-Overlay fehlte es.
+- **Zweiter, kleinerer Anteil:** `isHoveredDisplay` steht in der URL des Fensters
+  und ist bei einem wiederverwendeten Overlay von der allerersten Öffnung. Im
+  Bereichs-Modus entschied dieser eingefrorene Wert, welcher Bildschirm den
+  Auswahlrahmen zeigt, solange noch kein Cursor-Ereignis eingetroffen war. Rust
+  schickt jetzt eine frische Position raus, bevor überhaupt ein Fenster sichtbar
+  wird.
+- **Codex-Gegencheck:** ein echter Fund, eingearbeitet. Der Windows-Zweig setzte
+  Größe und Position ohne die Verzögerung und Nachkontrolle, die der Erzeugungsweg
+  hat; bei gemischter Skalierung deckt das Overlay dann nur einen Teil des
+  Bildschirms ab.
+- **Nebenbei:** `pnpm exec biome check` ist wieder sauber. `vendor/` wird nicht
+  mehr mitgeprüft (fremder Code), und `capabilities/default.json` ist formatiert.
+- Geprüft: `cargo check -p cap-desktop` ohne Warnungen, `cargo test -p cap-desktop`
+  141 Tests grün, Typecheck, Biome, `cargo fmt --check`.
+
+## 2026-08-25 (Die Test-Suite lief nie durch)
+
+Beim Prüfen der App fiel auf, dass `cargo test --workspace` gar nicht bis zum
+Ende kommt. Ursache waren Reste aus dem Löschen von Caps Cloud-Paketen: die
+Testdatei der CLI blieb stehen, die geprüften Befehle sind weg.
+
+- **Zwei Tests hingen für immer.** `auth_status_verifies_agent_credentials_with_the_server`
+  und `mcp_cancellation_stops_wait_polling` starten einen Mini-Server auf
+  127.0.0.1 und warten in `accept()` auf eine Anfrage der CLI. Die kommt nie,
+  weil `auth` und `mcp` gelöscht sind. Kein Timeout, der Lauf steht.
+- **15 Tests entfernt**, alle für Befehle, die es nicht mehr gibt (`auth`,
+  `caps`, `account`, `agents`, `upload`, `mcp`, S3). Einer davon war grün, aber
+  aus dem falschen Grund: `sharing_requires_one_visibility_flag` erwartet
+  Exit-Code 2 für eine falsche Flag-Kombination, und clap liefert dieselbe 2
+  auch für einen unbekannten Befehl. Der Test hat nichts geprüft.
+- **Vier Tests auf den Ist-Zustand umgestellt**: die Befehlslisten in
+  `help_succeeds_and_lists_commands` und `subcommand_help_succeeds`, der Name
+  im Startbildschirm (`shelf` statt `cap`) und das Guide-Manifest.
+- Ergebnis: 42 grün, 0 rot, kein Hänger. Vorher 38 grün, 17 rot, 2 endlos.
+- **Zwei Doctests in `crates/utils`** waren nie kompilierbar (fehlender Import,
+  freischwebende Variablen; der zweite Block war überhaupt kein Rust, sondern
+  Format-Beispiele). Erster jetzt ein echtes Beispiel, zweiter als `text`
+  ausgezeichnet.
+- **`test_needs_update` in `cap-rendering-skia`** prüfte nach `prepare()`, dass
+  kein Update nötig ist. `needs_update` vergleicht aber gegen `last_rendered_*`,
+  und die schreibt nur `record()`; der Kommentar am Ende von `prepare` sagt das
+  ausdrücklich. Der Test stammt aus der Zeit, als gegen `current_*` verglichen
+  wurde. Er läuft jetzt den echten Zyklus und prüft zusätzlich, dass `record`
+  ein Bild liefert.
+- **Codex-Gegencheck:** meldete einen Build-Fehler wegen `unused_must_use`.
+  Nachgemessen, stimmt nicht, `Option` ist nicht `#[must_use]`, nur `Result`;
+  der Test kompilierte und lief. Der Vorschlag, das Ergebnis zu prüfen, macht
+  den Test trotzdem besser und ist übernommen.
+
+- **Doctests von `cap-audio` abgeschaltet.** Seit Edition 2024 fasst rustdoc alle
+  Doctests einer Kiste zu einem Programm zusammen und startet es, auch wenn jedes
+  Beispiel `no_run` ist. Dieses Programm liegt in einem Temp-Ordner, und die
+  mitgelieferten ffmpeg-Bibliotheken sind als `@executable_path/../Frameworks/...`
+  eingebunden, also findet dyld sie dort nicht. `cargo test --workspace` endete
+  deshalb mit einem dyld-Fehler statt mit einem Ergebnis. Das einzige Beispiel der
+  Kiste ist `no_run` und lief ohnehin nie. Begründung steht in der `Cargo.toml`.
+
+Offen und bewusst nicht angefasst: `hardware_instant_recording` und
+`hardware_studio_recording` nehmen wirklich den Bildschirm auf und vergleichen
+die Videolänge mit der Aufnahmedauer. Im ersten Lauf schlugen sie fehl (29 Bilder
+in 6 Sekunden, Video 1,9 statt 6 Sekunden), im zweiten Lauf mit unverändertem
+Code waren sie grün. ScreenCaptureKit liefert Bilder nur bei Änderung, bei
+stillstehendem Bildschirm kommt zu wenig an. Kein Fehler in der App, aber das
+Ergebnis hängt davon ab, was während des Laufs auf dem Bildschirm passiert.
+
 ## 2026-08-21 (App hing sich beim Fenster-Erzeugen auf)
 
 Shelf blieb im Betrieb stehen: keine Reaktion mehr, ein Kern dauerhaft auf

@@ -80,7 +80,7 @@ use screenshot_editor::{
 };
 
 mod gpu_context;
-pub use gpu_context::{PendingScreenshot, PendingScreenshots};
+pub use gpu_context::{FrozenScreens, PendingScreenshot, PendingScreenshots};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use specta::Type;
@@ -4590,6 +4590,7 @@ fn specta_builder() -> tauri_specta::Builder {
             captions::export_captions_srt,
             target_select_overlay::open_target_select_overlays,
             target_select_overlay::close_target_select_overlays,
+            target_select_overlay::frozen_display_preview,
             target_select_overlay::update_camera_overlay_bounds,
             target_select_overlay::display_information,
             target_select_overlay::get_window_icon,
@@ -4872,6 +4873,10 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             app.manage(http_client::HttpClient::default());
             app.manage(http_client::RetryableHttpClient::default());
             app.manage(PendingScreenshots::default());
+            app.manage(FrozenScreens::default());
+            // A previous run may have died before clearing its preview, and a
+            // whole display can hold anything that was on screen.
+            FrozenScreens::remove_orphaned_previews();
             app.manage(hotkeys::PendingOcrCapture::default());
             app.manage(hotkeys::PinCopyShortcut::default());
             app.manage(FinalizingRecordings::default());

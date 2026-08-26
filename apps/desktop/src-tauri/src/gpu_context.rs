@@ -14,6 +14,203 @@ pub struct PendingScreenshot {
     pub created_at: Instant,
 }
 
+/// A display captured just before the area selection overlay went on screen.
+///
+/// See `cap_recording::screenshot::crop_frozen_display` for why the capture has
+/// to happen that early.
+pub struct FrozenScreen {
+    /// The whole display in physical pixels, cropped to the selection later.
+    pub image: image::RgbImage,
+    /// A JPEG of the same pixels for the picker to show. Only the image above
+    /// ever reaches a saved screenshot, so this copy may be lossy.
+    pub preview_path: Option<std::path::PathBuf>,
+}
+
+fn remove_preview(frozen: &FrozenScreen) {
+    if let Some(path) = &frozen.preview_path {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Frozen displays, keyed by display id.
+///
+/// A frozen display lives exactly as long as the picker that owns it: it is put
+/// here just before the picker opens and cleared when the picker closes. There
+/// is deliberately no expiry. The picker shows the frozen picture, so however
+/// long the user takes, what they select from is what they get; an expiry would
+/// mean selecting against one picture and receiving another.
+pub struct FrozenScreens(Arc<RwLock<HashMap<String, FrozenScreen>>>);
+
+impl Default for FrozenScreens {
+    fn default() -> Self {
+        Self(Arc::new(RwLock::new(HashMap::new())))
+    }
+}
+
+impl FrozenScreens {
+    /// Stores a frozen display, but only when it can also be shown.
+    ///
+    /// Without the preview the picker would show the live screen while the
+    /// capture came from the frozen image, which is the mismatch this whole
+    /// feature exists to avoid. Dropping the image in that case costs the hover
+    /// and nothing else.
+    pub fn insert(
+        &self,
+        display_id: String,
+        image: image::RgbImage,
+        preview_path: Option<std::path::PathBuf>,
+    ) {
+        let Some(preview_path) = preview_path else {
+            tracing::warn!(
+                display_id,
+                "Discarding the frozen display: it has no preview to show"
+            );
+            return;
+        };
+
+        let mut guard = self.0.write().unwrap();
+        for frozen in guard.values() {
+            remove_preview(frozen);
+        }
+        guard.clear();
+        guard.insert(
+            display_id,
+            FrozenScreen {
+                image,
+                preview_path: Some(preview_path),
+            },
+        );
+    }
+
+    /// The picture the picker should show for this display.
+    pub fn preview_path(&self, display_id: &str) -> Option<std::path::PathBuf> {
+        self.0.read().unwrap().get(display_id)?.preview_path.clone()
+    }
+
+    /// Hands over the frozen display for cropping and retires it: one frozen
+    /// image belongs to exactly one capture.
+    pub fn take(&self, display_id: &str) -> Option<image::RgbImage> {
+        let mut guard = self.0.write().unwrap();
+        let frozen = guard.remove(display_id)?;
+        remove_preview(&frozen);
+        Some(frozen.image)
+    }
+
+    pub fn clear(&self) {
+        let mut guard = self.0.write().unwrap();
+        for frozen in guard.values() {
+            remove_preview(frozen);
+        }
+        guard.clear();
+    }
+
+    /// Deletes previews left behind by a previous run.
+    ///
+    /// The images never outlive the process in memory, but their files do if it
+    /// dies without cleaning up, and a whole display can hold anything that was
+    /// on screen.
+    pub fn remove_orphaned_previews() {
+        let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else {
+            return;
+        };
+
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with(FROZEN_PREVIEW_PREFIX) && name.ends_with(".jpg") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+}
+
+/// Shared with the writer in `hotkeys` so cleanup cannot miss a file.
+pub const FROZEN_PREVIEW_PREFIX: &str = "shelf-frozen-";
+
+#[cfg(test)]
+mod frozen_screens_tests {
+    use super::*;
+
+    fn image() -> image::RgbImage {
+        image::RgbImage::new(4, 4)
+    }
+
+    fn preview() -> Option<std::path::PathBuf> {
+        Some(std::env::temp_dir().join("shelf-frozen-test-not-written.jpg"))
+    }
+
+    #[test]
+    fn a_frozen_display_is_handed_out_once() {
+        let screens = FrozenScreens::default();
+        screens.insert("1".into(), image(), preview());
+
+        assert!(screens.take("1").is_some());
+        // The second capture must fall back to the live screen rather than
+        // silently reuse an image the picker is no longer showing.
+        assert!(screens.take("1").is_none());
+    }
+
+    #[test]
+    fn a_display_without_a_preview_is_not_kept() {
+        let screens = FrozenScreens::default();
+        screens.insert("1".into(), image(), None);
+
+        // Nothing to show means nothing to cut from, otherwise the user would
+        // select against the live screen and receive the frozen one.
+        assert!(screens.take("1").is_none());
+        assert!(screens.preview_path("1").is_none());
+    }
+
+    #[test]
+    fn only_the_asked_for_display_comes_back() {
+        let screens = FrozenScreens::default();
+        screens.insert("1".into(), image(), preview());
+
+        assert!(screens.take("2").is_none());
+        assert!(screens.take("1").is_some());
+    }
+
+    #[test]
+    fn a_new_capture_replaces_the_previous_one() {
+        let screens = FrozenScreens::default();
+        screens.insert("1".into(), image(), preview());
+        screens.insert("2".into(), image(), preview());
+
+        assert!(
+            screens.take("1").is_none(),
+            "the earlier display outlived its picker"
+        );
+        assert!(screens.take("2").is_some());
+    }
+
+    #[test]
+    fn whatever_the_picker_shows_is_what_gets_cut() {
+        let screens = FrozenScreens::default();
+        screens.insert("1".into(), image(), preview());
+
+        // The two must agree at all times: a preview on screen means an image
+        // ready to crop, and no preview means none.
+        assert_eq!(
+            screens.preview_path("1").is_some(),
+            screens.take("1").is_some()
+        );
+        assert_eq!(
+            screens.preview_path("1").is_some(),
+            screens.take("1").is_some()
+        );
+    }
+
+    #[test]
+    fn clearing_leaves_nothing_for_a_later_capture() {
+        let screens = FrozenScreens::default();
+        screens.insert("1".into(), image(), preview());
+        screens.clear();
+
+        assert!(screens.take("1").is_none());
+        assert!(screens.preview_path("1").is_none());
+    }
+}
+
 pub struct PendingScreenshots(pub Arc<RwLock<HashMap<String, PendingScreenshot>>>);
 
 impl Default for PendingScreenshots {

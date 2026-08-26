@@ -1,7 +1,25 @@
 # Shelf — offene Punkte
 
-Übergabe an die nächste Sitzung. Stand: 2026-08-19, vormittags.
+Übergabe an die nächste Sitzung. Stand: 2026-08-25.
 Verlauf und Begründungen stehen im `CHANGELOG.md`, Projektregeln in `CLAUDE.md`.
+
+## Entschieden am 2026-08-25: Shelf bleibt privat
+
+Louis hat entschieden, Shelf nicht zu veröffentlichen. Die Frage nach Closed
+Source ist damit erledigt und braucht nicht neu aufgemacht zu werden: Shelf ist
+ein Cap-Fork unter AGPLv3, eine Weitergabe ohne Quelltext wäre nicht erlaubt.
+Solange die App nur auf Louis' eigenen Rechnern läuft, entsteht keine Pflicht.
+
+Was daraus folgt und offen ist:
+
+- **Die Website `lou1s19/shelf-website` verlinkt `github.com/lou1s19/shelf` als
+  Quellcode** (`src/lib/site.ts`, `repoUrl`). Das Repo ist privat, für Besucher
+  ist das ein toter Link. Entweder den Link entfernen oder die Website ganz
+  zurückziehen.
+- **Der Download bleibt aus** (`download.available = false`). Das muss so
+  bleiben, sonst wäre es eine Weitergabe ohne Quelltext.
+- Der Punkt "macOS-Runner sind für öffentliche Repos kostenlos" weiter unten ist
+  damit hinfällig, der Rust-Build bleibt lokal.
 
 ## Zuerst: noch nicht am lebenden Objekt geprüft
 
@@ -30,6 +48,13 @@ noch nicht selbst benutzt.** Diese Dinge live prüfen (bauen mit
 Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
 
 ## Als Nächstes
+
+0. **Erledigt am 2026-08-26: Screen Freeze für Bereichs-Screenshots.** Der
+   Hover-Zustand unter der Maus bleibt jetzt auf dem Bild, weil der Bildschirm
+   beim Drücken des Kürzels eingefroren und im Picker angezeigt wird. Details im
+   `CHANGELOG.md`. Offen dazu: das Kürzel braucht rund 420 ms bis der Picker
+   steht (vorher 120 ms), davon 290 ms fürs JPEG. Schneller ginge es mit einem
+   unkomprimierten Format oder einer schnelleren JPEG-Bibliothek.
 
 1. **Vorschau beim Text-Kürzel.** „Area screenshot to text" kopiert den erkannten
    Text stumm in die Zwischenablage. Es soll kurz ein Fenster zeigen, was kopiert

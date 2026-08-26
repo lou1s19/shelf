@@ -377,6 +377,18 @@ mod tests {
         };
         layer.prepare(&frame_data).unwrap();
 
+        // Preparing alone changes nothing: `needs_update` compares against what
+        // was last *rendered*, and only `record` writes that.
+        assert!(layer.needs_update(&uniforms));
+
+        let mut recorder = PictureRecorder::new();
+        let bounds = Rect::from_wh(uniforms.output_size.0 as f32, uniforms.output_size.1 as f32);
+        let picture = layer.record(&mut recorder, bounds, &uniforms);
+        assert!(
+            picture.is_some(),
+            "recording the background should yield a picture"
+        );
+
         // Should not need update with same uniforms
         assert!(!layer.needs_update(&uniforms));
 

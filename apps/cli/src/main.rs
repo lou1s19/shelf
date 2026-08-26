@@ -177,7 +177,7 @@ enum Commands {
     Targets(TargetsArgs),
     /// Report CLI environment and capture-readiness diagnostics
     Doctor(FormatArgs),
-    /// Run end-to-end diagnostics that verify Cap works on this machine
+    /// Run end-to-end diagnostics that verify Shelf works on this machine
     Selftest(selftest::SelftestArgs),
     /// Print CLI version and execution context
     Version(FormatArgs),
