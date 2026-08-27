@@ -983,7 +983,7 @@ export type GlideDirection = "none" | "left" | "right" | "up" | "down"
 export type HapticPattern = "alignment" | "levelChange" | "generic"
 export type HapticPerformanceTime = "default" | "now" | "drawCompleted"
 export type Hotkey = { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }
-export type HotkeyAction = "toggleRecording" | "startStudioRecording" | "startInstantRecording" | "stopRecording" | "restartRecording" | "togglePauseRecording" | "cycleRecordingMode" | "openRecordingPicker" | "openRecordingPickerDisplay" | "openRecordingPickerWindow" | "openRecordingPickerArea" | "screenshotDisplay" | "screenshotWindow" | "screenshotArea" | "screenshotAreaOcr" | "other"
+export type HotkeyAction = "toggleRecording" | "startStudioRecording" | "startInstantRecording" | "stopRecording" | "restartRecording" | "togglePauseRecording" | "cycleRecordingMode" | "openRecordingPicker" | "openRecordingPickerDisplay" | "openRecordingPickerWindow" | "openRecordingPickerArea" | "screenshotDisplay" | "screenshotWindow" | "screenshotArea" | "screenshotAreaOcr" | "screenshotLastArea" | "other"
 export type HotkeysConfiguration = { show: boolean }
 export type HotkeysStore = { hotkeys: { [key in HotkeyAction]: Hotkey } }
 export type ImportStage = "Probing" | "Converting" | "Finalizing" | "Complete" | "Failed"
@@ -1094,7 +1094,13 @@ export type RecordingMeta = (StudioRecordingMeta | InstantRecordingMeta) & { pla
 export type RecordingMetaWithMetadata = ((StudioRecordingMeta | InstantRecordingMeta) & { platform?: Platform | null; pretty_name: string; sharing?: SharingMeta | null; upload?: UploadMeta | null }) & { mode: RecordingMode; status: StudioRecordingStatus; clip_count: number; sort_time_millis: number }
 export type RecordingMode = "studio" | "instant" | "screenshot"
 export type RecordingOptionsChanged = null
-export type RecordingSettingsStore = { target: ScreenCaptureTarget | null; micName: string | null; cameraId: DeviceOrModelID | null; mode: RecordingMode | null; systemAudio: boolean; cameraDeviceSettings: { [key in string]: CameraDeviceSettings }; microphoneDeviceSettings: { [key in string]: MicrophoneDeviceSettings } }
+export type RecordingSettingsStore = { target: ScreenCaptureTarget | null; micName: string | null; cameraId: DeviceOrModelID | null; mode: RecordingMode | null; systemAudio: boolean; cameraDeviceSettings: { [key in string]: CameraDeviceSettings }; microphoneDeviceSettings: { [key in string]: MicrophoneDeviceSettings }; 
+/**
+ * The area of the last area screenshot, kept apart from `target` because
+ * that one follows the recording picker and is overwritten by a display,
+ * window or camera choice.
+ */
+lastScreenshotArea: ScreenCaptureTarget | null }
 export type RecordingStarted = null
 export type RecordingStatus = "pending" | "recording"
 export type RecordingStopped = null

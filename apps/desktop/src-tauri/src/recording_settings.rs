@@ -31,6 +31,10 @@ pub struct RecordingSettingsStore {
     pub system_audio: bool,
     pub camera_device_settings: HashMap<String, CameraDeviceSettings>,
     pub microphone_device_settings: HashMap<String, MicrophoneDeviceSettings>,
+    /// The area of the last area screenshot, kept apart from `target` because
+    /// that one follows the recording picker and is overwritten by a display,
+    /// window or camera choice.
+    pub last_screenshot_area: Option<ScreenCaptureTarget>,
 }
 
 impl RecordingSettingsStore {
@@ -44,6 +48,17 @@ impl RecordingSettingsStore {
             },
             _ => Ok(None),
         }
+    }
+
+    /// Records the area a screenshot was just taken of, so a shortcut can repeat
+    /// it without opening the picker.
+    pub fn set_last_screenshot_area(
+        app: &AppHandle<Wry>,
+        target: ScreenCaptureTarget,
+    ) -> Result<(), String> {
+        Self::update(app, |settings| {
+            settings.last_screenshot_area = Some(target);
+        })
     }
 
     /// Read/modify/write of the whole settings blob. Every setter goes through

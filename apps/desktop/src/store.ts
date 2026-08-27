@@ -113,6 +113,7 @@ export const recordingSettingsStore = declareStore<RecordingSettingsStore>(
 		systemAudio: false,
 		cameraDeviceSettings: {},
 		microphoneDeviceSettings: {},
+		lastScreenshotArea: null,
 	},
 );
 export const teleprompterStore = declareStore<TeleprompterStore>(

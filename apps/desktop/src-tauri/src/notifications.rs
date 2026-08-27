@@ -14,6 +14,7 @@ pub enum NotificationType {
     TextCopiedToClipboard,
     TextCopyFailed,
     TextRecognitionFailed,
+    ScreenshotAreaMissing,
 }
 
 impl NotificationType {
@@ -39,6 +40,11 @@ impl NotificationType {
             NotificationType::ScreenshotCopiedToClipboard => {
                 ("Screenshot Copied", "Screenshot copied to clipboard", false)
             }
+            NotificationType::ScreenshotAreaMissing => (
+                "No Area Yet",
+                "Pick an area once with the area screenshot shortcut, then this one repeats it",
+                true,
+            ),
             NotificationType::ScreenshotSaveFailed => (
                 "Save Failed",
                 "Unable to save screenshot. Please try again",

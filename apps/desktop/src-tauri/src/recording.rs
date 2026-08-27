@@ -2563,6 +2563,17 @@ pub async fn take_screenshot(
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     }
 
+    // Written here rather than in the picker so it holds no matter which path
+    // took the shot, and so the "repeat last area" shortcut can rely on it.
+    if matches!(target, ScreenCaptureTarget::Area { .. })
+        && let Err(e) = crate::recording_settings::RecordingSettingsStore::set_last_screenshot_area(
+            &app,
+            target.clone(),
+        )
+    {
+        warn!("Failed to remember the last screenshot area: {e}");
+    }
+
     let automation_target = target.clone();
 
     // Decided before the capture, not after the encode, because the pin has to go up while the
