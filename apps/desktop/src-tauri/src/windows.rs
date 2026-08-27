@@ -120,34 +120,6 @@ fn is_system_dark_mode() -> bool {
     false
 }
 
-/// Whether a window has to be off screen before a capture is taken.
-///
-/// These are Shelf's own overlays: they float above everything, so a capture
-/// taken while one is visible contains it. Both the normal screenshot path
-/// (which hides them) and the frozen capture (which refuses to run while one is
-/// up) ask here, so the two can never drift apart.
-pub fn shows_up_in_captures(id: &CapWindowId) -> bool {
-    matches!(
-        id,
-        CapWindowId::TargetSelectOverlay { .. }
-            | CapWindowId::WindowCaptureOccluder { .. }
-            | CapWindowId::CaptureArea
-            | CapWindowId::ModeSelect
-            | CapWindowId::RecordingsOverlay
-            | CapWindowId::TextPin
-    )
-}
-
-/// Whether any of those overlays is on screen right now.
-pub fn any_capture_overlay_visible(app: &AppHandle) -> bool {
-    app.webview_windows().iter().any(|(label, window)| {
-        CapWindowId::from_str(label)
-            .map(|id| shows_up_in_captures(&id))
-            .unwrap_or(false)
-            && window.is_visible().unwrap_or(false)
-    })
-}
-
 pub fn hide_overlay(window: &WebviewWindow) {
     let _ = window.set_ignore_cursor_events(true);
     let _ = window.hide();

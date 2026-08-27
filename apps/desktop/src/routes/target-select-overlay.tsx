@@ -5,7 +5,6 @@ import { createElementSize } from "@solid-primitives/resize-observer";
 import { makePersisted } from "@solid-primitives/storage";
 import { useSearchParams } from "@solidjs/router";
 import { createMutation, useQuery } from "@tanstack/solid-query";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import {
 	LogicalPosition,
 	type PhysicalPosition,
@@ -778,44 +777,6 @@ function Inner() {
 						},
 					}));
 
-					// The screen was frozen the moment the shortcut was pressed, so
-					// this is what the selection will actually capture. Showing it
-					// instead of the live screen is the difference between seeing a
-					// hovered button and only being told it was kept.
-					const [frozenPreview, setFrozenPreview] = createSignal<string | null>(
-						null,
-					);
-
-					createEffect(() => {
-						if (options.targetMode !== "area") {
-							setFrozenPreview(null);
-							return;
-						}
-
-						const id = displayId();
-						let cancelled = false;
-
-						commands
-							.frozenDisplayPreview(id)
-							.then((path) => {
-								if (cancelled) return;
-								// A cache buster: the file keeps its name across
-								// captures, so without one the webview would show the
-								// picture from the previous screenshot.
-								setFrozenPreview(
-									path ? `${convertFileSrc(path)}?t=${Date.now()}` : null,
-								);
-							})
-							.catch((e) => {
-								console.error("Failed to load the frozen display", e);
-								if (!cancelled) setFrozenPreview(null);
-							});
-
-						onCleanup(() => {
-							cancelled = true;
-						});
-					});
-
 					const [isInteracting, setIsInteracting] = createSignal(false);
 					const [screenshotAspect, setScreenshotAspect] =
 						createSignal<Ratio | null>(null);
@@ -1326,18 +1287,6 @@ function Inner() {
 								"opacity-0 pointer-events-none": !shouldShowOverlay(),
 							}}
 						>
-							<Show when={frozenPreview()}>
-								{(src) => (
-									<img
-										src={src()}
-										alt=""
-										// Covers the display exactly, so the selection lands
-										// on the same pixels the crop will take.
-										class="fixed inset-0 w-screen h-screen select-none pointer-events-none"
-										draggable={false}
-									/>
-								)}
-							</Show>
 							<Show when={isActiveDisplay()}>
 								<div
 									class="fixed left-1/2 z-[60] max-w-[calc(100vw-2rem)] -translate-x-1/2"

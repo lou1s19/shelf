@@ -428,18 +428,6 @@ async openTargetSelectOverlays(focusedTarget: ScreenCaptureTarget | null, specif
 async closeTargetSelectOverlays() : Promise<null> {
     return await TAURI_INVOKE("close_target_select_overlays");
 },
-/**
- * The frozen picture of this display, for the picker to show instead of the
- * live screen.
- * 
- * Without it the picker shows what is on screen right now, where the hover the
- * capture was meant to keep is already gone: the user would be selecting
- * against one picture and receiving another. Returns `None` whenever nothing
- * was frozen, which is the ordinary case for a video recording.
- */
-async frozenDisplayPreview(displayId: string) : Promise<string | null> {
-    return await TAURI_INVOKE("frozen_display_preview", { displayId });
-},
 async updateCameraOverlayBounds(x: number, y: number, width: number, height: number) : Promise<null> {
     return await TAURI_INVOKE("update_camera_overlay_bounds", { x, y, width, height });
 },

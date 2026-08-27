@@ -21,6 +21,23 @@ Was daraus folgt und offen ist:
 - Der Punkt "macOS-Runner sind für öffentliche Repos kostenlos" weiter unten ist
   damit hinfällig, der Rust-Build bleibt lokal.
 
+## Zurückgenommen am 2026-08-27: Screen Freeze
+
+Der Versuch, den Hover-Zustand auf den Bereichs-Screenshot zu retten, ist wieder
+raus (`git revert 5a931e31a`). Zweimal getestet, zweimal zeigte der Picker den
+alten Stand. Das Einfrieren selbst lief nachweislich korrekt, der Fehler steckte
+in der Anzeige im Webview.
+
+**Damit weiterhin offen:** Ein Bereichs-Screenshot hält nichts fest, was auf den
+Mauszeiger reagiert (Hover, Tooltip, offenes Menü). Ursache ist, dass das
+Auswahl-Overlay dem Fenster darunter die Maus nimmt.
+
+**Wer es erneut angeht:** Der Code liegt auf `wip/screen-freeze-restore-fixes`
+(`276e7a5e1`). Nicht beim Einfrieren anfangen, das funktionierte. Der Knackpunkt
+ist, das Standbild verlässlich anzuzeigen: Der Picker-Webview wird nur versteckt,
+nie geschlossen, und behält sein altes Bild. Ein natives Fenster unter dem Picker
+wäre vermutlich der robustere Weg als ein `<img>` im Webview.
+
 ## Zuerst: noch nicht am lebenden Objekt geprüft
 
 Gebaut und installiert ist alles, die App läuft. **Louis hat den Umbau aber
@@ -48,13 +65,6 @@ noch nicht selbst benutzt.** Diese Dinge live prüfen (bauen mit
 Immer erst `pkill -f "Shelf.app/Contents"`, sonst testet man die alte Fassung.
 
 ## Als Nächstes
-
-0. **Erledigt am 2026-08-26: Screen Freeze für Bereichs-Screenshots.** Der
-   Hover-Zustand unter der Maus bleibt jetzt auf dem Bild, weil der Bildschirm
-   beim Drücken des Kürzels eingefroren und im Picker angezeigt wird. Details im
-   `CHANGELOG.md`. Offen dazu: das Kürzel braucht rund 420 ms bis der Picker
-   steht (vorher 120 ms), davon 290 ms fürs JPEG. Schneller ginge es mit einem
-   unkomprimierten Format oder einer schnelleren JPEG-Bibliothek.
 
 1. **Vorschau beim Text-Kürzel.** „Area screenshot to text" kopiert den erkannten
    Text stumm in die Zwischenablage. Es soll kurz ein Fenster zeigen, was kopiert

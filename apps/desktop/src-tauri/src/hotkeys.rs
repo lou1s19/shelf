@@ -460,106 +460,7 @@ pub fn init(app: &AppHandle) {
     app.manage(Mutex::new(store));
 }
 
-/// Writes the frozen display to a file the picker can display.
-///
-/// The picker is a webview and cannot reach into the image held in memory, so it
-/// needs a file. JPEG rather than PNG because encoding a full display as PNG
-/// costs a few hundred milliseconds, which the user would wait through before
-/// the picker appears. Quality only has to survive being looked at: the saved
-/// screenshot is always cut from the untouched image in memory, never from here.
-///
-/// Returns `None` on failure, which only costs the preview; the capture itself
-/// still works.
-fn write_frozen_preview(display_id: &str, image: &image::RgbImage) -> Option<std::path::PathBuf> {
-    use image::ImageEncoder;
-    use image::codecs::jpeg::JpegEncoder;
-
-    let started = std::time::Instant::now();
-    // One file per display, overwritten on every capture, so nothing piles up
-    // even if a cleanup is ever missed.
-    let path = std::env::temp_dir().join(format!(
-        "{}{display_id}.jpg",
-        crate::gpu_context::FROZEN_PREVIEW_PREFIX
-    ));
-
-    let file = match std::fs::File::create(&path) {
-        Ok(file) => file,
-        Err(err) => {
-            tracing::error!(%err, ?path, "Could not create the frozen display preview");
-            return None;
-        }
-    };
-
-    let encoder = JpegEncoder::new_with_quality(std::io::BufWriter::new(file), 80);
-    if let Err(err) = encoder.write_image(
-        image.as_raw(),
-        image.width(),
-        image.height(),
-        image::ExtendedColorType::Rgb8,
-    ) {
-        tracing::error!(%err, ?path, "Could not write the frozen display preview");
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-
-    tracing::debug!(elapsed = ?started.elapsed(), "Wrote the frozen display preview");
-    Some(path)
-}
-
-/// Captures the display under the pointer so the area selected next can be cut
-/// out of it, keeping whatever the pointer was doing at the time. The reasoning
-/// is in `cap_recording::screenshot::crop_frozen_display`.
-///
-/// Only the display holding the cursor is taken: that is where a hovered button
-/// or an open tooltip is, and a full display runs to tens of megabytes. A
-/// selection made on any other screen simply captures live, as before.
-///
-/// Refuses to run while one of Shelf's own overlays is up, because those float
-/// above everything and would be frozen into the picture. That covers a second
-/// press of the shortcut while the picker is already open, and a screenshot card
-/// still resting on the shelf from a moment ago.
-async fn freeze_display_for_area_screenshot(app: &AppHandle) {
-    use scap_targets::Display;
-
-    if crate::windows::any_capture_overlay_visible(app) {
-        tracing::debug!("Not freezing: one of Shelf's overlays is on screen");
-        return;
-    }
-
-    let started = std::time::Instant::now();
-    let display = Display::get_containing_cursor().unwrap_or_else(Display::primary);
-    let id = display.id();
-
-    match cap_recording::screenshot::capture_frozen_display(id.clone()).await {
-        Ok(image) => {
-            let display_id = id.to_string();
-            // Encoding is a few hundred milliseconds of solid CPU work, which
-            // would stall an async worker for anything else queued behind it.
-            let Ok((image, preview_path)) = tokio::task::spawn_blocking(move || {
-                let preview_path = write_frozen_preview(&display_id, &image);
-                (image, preview_path)
-            })
-            .await
-            else {
-                tracing::error!("Writing the frozen display preview did not finish");
-                return;
-            };
-
-            app.state::<crate::FrozenScreens>()
-                .insert(id.to_string(), image, preview_path);
-            tracing::debug!(elapsed = ?started.elapsed(), "Froze the display for an area screenshot");
-        }
-        // Not fatal: without a frozen image the selection captures the live
-        // screen, exactly as it did before.
-        Err(err) => {
-            tracing::error!(display_id = %id, %err, "Could not freeze the display for an area screenshot")
-        }
-    }
-}
-
-async fn open_area_screenshot_picker(app: &AppHandle) -> Result<(), String> {
-    freeze_display_for_area_screenshot(app).await;
-
+fn open_area_screenshot_picker(app: &AppHandle) -> Result<(), String> {
     RecordingSettingsStore::set_mode(app, cap_recording::RecordingMode::Screenshot)
         .map_err(|e| format!("Failed to set screenshot mode: {e}"))?;
 
@@ -650,11 +551,11 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
                 Err(e) => Err(format!("Failed to take screenshot: {e}")),
             }
         }
-        HotkeyAction::ScreenshotArea => open_area_screenshot_picker(&app).await,
+        HotkeyAction::ScreenshotArea => open_area_screenshot_picker(&app),
         HotkeyAction::ScreenshotAreaOcr => {
             app.state::<PendingOcrCapture>().mark();
 
-            open_area_screenshot_picker(&app).await
+            open_area_screenshot_picker(&app)
         }
         HotkeyAction::Other => Ok(()),
     }

@@ -24,63 +24,39 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
-## 2026-08-26 (Der Hover bleibt jetzt auf dem Screenshot)
+## 2026-08-27 (Screen Freeze wieder ausgebaut)
 
-Louis: „ich bin mit meiner Maus auf etwas, ein Button als Beispiel, dann drücke
-ich Cmd+B für Area-Screenshot und der Hover geht weg." Er braucht den
-hervorgehobenen Zustand manchmal auf dem Bild.
+Der Versuch, den Hover-Zustand auf den Bereichs-Screenshot zu retten, ist
+zurückgenommen. Louis hat ihn zweimal getestet, beide Male zeigte der Picker den
+Stand von vor dem Tab-Wechsel. Der Rückbau ist ein `git revert` von `5a931e31a`.
 
-- **Das Problem ist eingebaut, nicht zufällig.** Ein Screenshot-Werkzeug
-  verändert durch sein eigenes Auswahl-Fenster genau den Bildschirm, den es
-  aufnehmen soll. Sobald das Overlay aufgeht, verliert das Fenster darunter die
-  Maus, der Button fällt in den Normalzustand zurück, ein Tooltip verschwindet
-  ganz. Aufgenommen wurde bisher erst nach dem Bestätigen der Auswahl, also viel
-  zu spät.
-- **Lösung: Screen Freeze**, wie bei CleanShot X und Shottr. Beim Drücken des
-  Kürzels wird der Bildschirm unter der Maus sofort aufgenommen, bevor
-  irgendetwas von Shelf sichtbar wird. Die Auswahl wird aus diesem Standbild
-  geschnitten.
-- **Nur der Bildschirm unter der Maus** wird eingefroren. Dort ist der Hover, und
-  ein volles Display sind mehrere Dutzend Megabyte. Auf jedem anderen Bildschirm
-  wird wie bisher live aufgenommen.
-- **Das Standbild wird auch angezeigt.** Erster Anlauf ohne Anzeige war
-  unbrauchbar: Louis sah beim Ziehen den lebenden Bildschirm ohne Hover, hielt es
-  für kaputt und brach zweimal mit Escape ab. Das Log zeigte das Einfrieren
-  sauber laufen (143 ms), aber keinen einzigen fertigen Screenshot. Seitdem
-  schreibt Shelf zusätzlich ein JPEG in den Temp-Ordner, das der Picker
-  bildschirmfüllend anzeigt. Gespeichert wird weiter aus dem verlustfreien
-  Original im Speicher.
-- **Skalierung aus dem Bild abgeleitet, nicht vom Display erfragt.** Bei einer
-  skalierten Auflösung („Mehr Fläche") meldet macOS weiter den Faktor 2, liefert
-  aber ein Bild, das nicht doppelt so breit ist wie die logische Größe. Auf einem
-  14-Zoll-MacBook läge der Ausschnitt damit fast 300 Pixel daneben. Sieben Tests
-  decken das ab, geprüft durch absichtliches Einbauen der falschen Rechnung.
-- **Kein Shelf-Fenster kann mit ins Bild.** Sichtbare eigene Overlays (Picker,
-  Regal, Occluder, Modus-Auswahl, Text-Pin) verhindern das Einfrieren ganz. Die
-  Liste ist jetzt eine gemeinsame Funktion, die auch `take_screenshot` benutzt,
-  damit die beiden Wege nicht auseinanderlaufen.
-- **Codex-Gegencheck dreimal gelaufen, jedes Mal mit echtem Fund:**
-  1. Windows-Zweig setzte Größe ohne DPI-Nachkontrolle.
-  2. Ein zweites Drücken des Kürzels bei offenem Picker fror den Picker mit ein.
-     Beim Nachgehen zeigte sich, dass es nicht nur den Picker betrifft, sondern
-     jedes sichtbare eigene Overlay.
-  3. **Der wichtigste:** Nach der ursprünglichen 15-Sekunden-Grenze zeigte der
-     Picker weiter das Standbild, schnitt aber live. Man wählte auf Bild A und
-     bekam Bild B. Die Grenze war nur sinnvoll, solange das Bild unsichtbar war;
-     mit der Anzeige ist sie überflüssig und schädlich. Sie ist ersatzlos raus.
-     Das Standbild lebt jetzt genau so lange wie der Picker, der es besitzt.
-- **Anzeige und Zuschnitt sind hart gekoppelt:** Lässt sich kein Vorschaubild
-  schreiben, wird das Standbild verworfen. Ohne etwas zu zeigen gibt es auch
-  nichts zu schneiden, sonst entstünde genau die Ungleichheit von oben.
-- **Aufräumen:** Vorschau-Dateien werden beim Schließen des Pickers gelöscht und
-  beim App-Start einmal durchgekehrt, falls ein früherer Lauf abgestürzt ist. Ein
-  volles Display kann alles zeigen, was gerade auf dem Schirm war.
+**Was das Feature tat:** Beim Drücken von Cmd+B wurde der Bildschirm unter der
+Maus sofort aufgenommen, bevor Shelfs Auswahl-Overlay sichtbar wurde, als JPEG in
+den Temp-Ordner geschrieben, im Picker angezeigt und die Auswahl daraus
+geschnitten. Grund: Das Overlay nimmt dem Fenster darunter die Maus, damit ist
+ein hervorgehobener Button wieder normal und ein Tooltip ganz weg.
 
-**Gemessen und bewusst offen:** Das Kürzel braucht jetzt rund 420 ms bis der
-Picker steht, davon etwa 290 ms allein für das JPEG. Vorher waren es rund 120 ms.
-Louis hat das so abgenommen. Wer es schneller haben will: ein Format, das nicht
-komprimiert (BMP), oder eine schnellere JPEG-Bibliothek wären die nächsten
-Schritte, beides ohne Einfluss auf die Bildqualität des Ergebnisses.
+**Warum es raus ist.** Der Rust-Teil arbeitete am Ende nachweislich korrekt. Das
+Log vom 27.08. zeigt zwei aufeinanderfolgende Aufnahmen, beide mit frischem
+Einfrieren (409 ms und 561 ms), dazwischen ein fertiger Screenshot. Trotzdem sah
+Louis den alten Stand. Der Fehler steckt also nicht im Einfrieren, sondern in der
+Anzeige: Der Picker ist ein Webview, das nur versteckt und nie geschlossen wird,
+und behält damit sein bisheriges `<img>`. Ein Cache-Buster an der URL hat nicht
+gereicht. Weiter verfolgt wurde das nicht.
+
+**Aufgehoben, nicht gelöscht.** Der Stand liegt auf `wip/screen-freeze-restore-fixes`
+(`276e7a5e1`), inklusive der drei zuletzt eingearbeiteten Codex-Funde. Wer es
+wieder aufgreift, fängt bei der Anzeige an, nicht beim Einfrieren.
+
+**Was damit wieder offen ist:** Louis' ursprüngliche Bitte. Ein Bereichs-Screenshot
+kann nichts festhalten, was auf den Mauszeiger reagiert: keinen Hover, keinen
+Tooltip, kein geöffnetes Menü. Das ist keine Nachlässigkeit, sondern die Folge
+davon, dass das Auswahl-Overlay den Bildschirm verändert, den es aufnehmen soll.
+Wer es erneut angeht, braucht einen Weg, das Standbild verlässlich anzuzeigen,
+zum Beispiel ein natives Fenster unter dem Picker statt eines Bildes im Webview.
+
+**Ebenfalls zurückgenommen,** weil es nur zum Freeze gehörte: das Wegblenden und
+Wiedereinblenden eigener Overlays vor dem Einfrieren samt Merkliste.
 
 ## 2026-08-25 (Hovern wählte den falschen Bildschirm aus)
 

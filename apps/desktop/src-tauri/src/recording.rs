@@ -2508,33 +2508,6 @@ pub async fn delete_recording(app: AppHandle, state: MutableState<'_, App>) -> R
     Ok(())
 }
 
-/// Cuts the selected area out of the display frozen when the picker opened.
-///
-/// Returns `None` whenever the normal capture path should run instead: any
-/// target other than an area, a display that was never frozen (the picker was
-/// opened for a video recording, or the capture failed), or an image old enough
-/// that it no longer shows the screen the user is looking at.
-fn take_frozen_area(app: &AppHandle, target: &ScreenCaptureTarget) -> Option<image::DynamicImage> {
-    let ScreenCaptureTarget::Area { screen, .. } = target else {
-        return None;
-    };
-
-    let frozen = app
-        .state::<crate::FrozenScreens>()
-        .take(&screen.to_string())?;
-
-    match cap_recording::screenshot::crop_frozen_display(frozen, target) {
-        Ok(image) => {
-            debug!("Area screenshot cut from the frozen display");
-            Some(image)
-        }
-        Err(err) => {
-            error!(%err, "Could not cut the area out of the frozen display");
-            None
-        }
-    }
-}
-
 #[tauri::command(async)]
 #[specta::specta]
 #[tracing::instrument(name = "take_screenshot", skip(app))]
@@ -2566,14 +2539,17 @@ pub async fn take_screenshot(
         None,
     );
 
-    // Taken before the overlays are hidden: with a frozen image in hand nothing
-    // has to settle on screen first, the pixels are already captured.
-    let frozen_area = take_frozen_area(&app, &target);
-
     let mut hid_any = false;
     for (label, window) in app.webview_windows() {
         if let Ok(id) = CapWindowId::from_str(&label)
-            && crate::windows::shows_up_in_captures(&id)
+            && matches!(
+                id,
+                CapWindowId::TargetSelectOverlay { .. }
+                    | CapWindowId::WindowCaptureOccluder { .. }
+                    | CapWindowId::CaptureArea
+                    | CapWindowId::ModeSelect
+                    | CapWindowId::RecordingsOverlay
+            )
         {
             // A window that is already off screen cannot end up in the capture, so only a window
             // that really had to disappear is worth waiting for.
@@ -2583,7 +2559,7 @@ pub async fn take_screenshot(
         }
     }
 
-    if hid_any && frozen_area.is_none() {
+    if hid_any {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     }
 
@@ -2596,12 +2572,9 @@ pub async fn take_screenshot(
     let should_pin =
         !ocr_requested && post_screenshot_behaviour == Some(PostScreenshotBehaviour::ShowOverlay);
 
-    let image = match frozen_area {
-        Some(image) => image,
-        None => capture_screenshot(target)
-            .await
-            .map_err(|e| format!("Failed to capture screenshot: {e}"))?,
-    };
+    let image = capture_screenshot(target)
+        .await
+        .map_err(|e| format!("Failed to capture screenshot: {e}"))?;
 
     AppSounds::Notification.play();
 
