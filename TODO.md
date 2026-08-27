@@ -28,9 +28,13 @@ raus (`git revert 5a931e31a`). Zweimal getestet, zweimal zeigte der Picker den
 alten Stand. Das Einfrieren selbst lief nachweislich korrekt, der Fehler steckte
 in der Anzeige im Webview.
 
-**Damit weiterhin offen:** Ein Bereichs-Screenshot hält nichts fest, was auf den
-Mauszeiger reagiert (Hover, Tooltip, offenes Menü). Ursache ist, dass das
-Auswahl-Overlay dem Fenster darunter die Maus nimmt.
+**Dafür gibt es seit 2026-08-27 einen anderen Weg:** das Kürzel „Repeat last
+area (keeps hover)". Es nimmt den zuletzt gewählten Bereich sofort auf, ohne
+Picker. Ohne Overlay über dem Zeiger erfährt die App darunter nie, dass die Maus
+weg ist, also bleibt der Hover. Der Bereich ist dafür nicht frei wählbar.
+
+**Weiterhin offen bleibt** der Hover bei einem frisch aufgezogenen Bereich. Das
+geht nur mit einem Standbild, und das ist am Anzeigeproblem gescheitert.
 
 **Wer es erneut angeht:** Der Code liegt auf `wip/screen-freeze-restore-fixes`
 (`276e7a5e1`). Nicht beim Einfrieren anfangen, das funktionierte. Der Knackpunkt

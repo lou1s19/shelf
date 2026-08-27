@@ -69,6 +69,7 @@ const SHORTCUT_GROUPS: ShortcutGroup[] = [
 			{ id: "screenshotWindow", label: "Screenshot current window" },
 			{ id: "screenshotArea", label: "Screenshot area" },
 			{ id: "screenshotAreaOcr", label: "Area screenshot to text" },
+			{ id: "screenshotLastArea", label: "Repeat last area (keeps hover)" },
 		],
 	},
 ];

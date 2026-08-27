@@ -24,6 +24,42 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-08-27 (Kürzel für den letzten Bereich, hält den Hover)
+
+Louis: „mach das es klappt, mit hover ohne verzögerung, lass den mauszeiger auf
+der stelle liegen wo es war, ohne frieze oder so." Neue Aktion
+`ScreenshotLastArea` in den Tastenkürzeln: „Repeat last area (keeps hover)".
+
+**Warum das geht, wo drei Anläufe scheiterten.** Der Mauszeiger blieb immer
+liegen, das war nie das Problem. Der Hover geht verloren, weil das Auswahl-Overlay
+über das Fenster darunter rutscht und macOS diesem meldet, die Maus sei weg. Und
+sobald man zum Aufziehen des Bereichs die Maus bewegt, wäre der Hover ohnehin
+fort, ganz ohne Shelf. Deshalb ließ er sich bisher nur als Standbild retten, also
+per Freeze, was Louis nicht wollte.
+
+Der Ausweg ist, das Overlay wegzulassen: Dieses Kürzel nimmt den zuletzt
+gewählten Bereich sofort auf. Nichts legt sich über den Zeiger, also erfährt die
+App darunter nie, dass die Maus weg ist, und der Button bleibt hell. Kein
+Standbild, keine Verzögerung, kein Webview, der ein altes Bild halten könnte:
+genau die drei Stellen, an denen es vorher schiefging, existieren hier nicht.
+
+- **Der Bereich hat ein eigenes Feld,** `last_screenshot_area`. Der erste Anlauf
+  las `target`, und der Codex-Gegencheck zeigte, dass das nie funktioniert hätte:
+  Der Bereichs-Screenshot schreibt seinen Bereich dort gar nicht hinein, und das
+  Feld wird von jeder Video-Auswahl (Bildschirm, Fenster, Kamera) überschrieben.
+  Das Kürzel hätte also „No Area Yet" gemeldet oder einen alten Aufnahme-Bereich
+  genommen. Geschrieben wird jetzt in `take_screenshot`, also unabhängig davon,
+  über welchen Weg der Screenshot ausgelöst wurde.
+- **Kein Bereich gewählt:** Systemmeldung „No Area Yet", zusätzlich eine
+  Log-Zeile, weil `send_notification` bei abgeschalteten Systemmeldungen still
+  zurückkehrt und das Kürzel sonst gar nichts täte.
+- **Kein Standard-Kürzel** vergeben, das legt Louis in den Einstellungen fest.
+- Eine Log-Zeile nennt den benutzten Bereich, damit ein Fehlschlag am Log ablesbar
+  ist statt durch Raten.
+
+**Noch nicht am lebenden Objekt geprüft.** Louis hat den Push freigegeben, ohne
+das Kürzel zu testen.
+
 ## 2026-08-27 (Screen Freeze wieder ausgebaut)
 
 Der Versuch, den Hover-Zustand auf den Bereichs-Screenshot zu retten, ist

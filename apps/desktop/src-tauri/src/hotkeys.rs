@@ -73,6 +73,7 @@ pub enum HotkeyAction {
     ScreenshotWindow,
     ScreenshotArea,
     ScreenshotAreaOcr,
+    ScreenshotLastArea,
     #[serde(other)]
     Other,
 }
@@ -349,6 +350,44 @@ async fn screenshot_current_display(app: &AppHandle) -> Result<(), String> {
     }
 }
 
+/// Captures the area chosen last, immediately, without opening the picker.
+///
+/// The picker is what costs a hover: it covers the screen, so the window
+/// underneath is told the mouse left and a highlighted button drops back to
+/// normal, a tooltip closes. Nothing here ever goes on top of the pointer, so
+/// whatever it was doing is still doing it when the shot is taken. The price is
+/// that the area cannot be drawn in the moment; it is the one from last time.
+async fn screenshot_last_area(app: &AppHandle) -> Result<(), String> {
+    let target = RecordingSettingsStore::get(app)
+        .ok()
+        .flatten()
+        .and_then(|settings| settings.last_screenshot_area);
+
+    let Some(target @ ScreenCaptureTarget::Area { .. }) = target else {
+        tracing::info!("No area screenshot taken yet, nothing to repeat");
+        crate::notifications::send_notification(
+            app,
+            crate::notifications::NotificationType::ScreenshotAreaMissing,
+        );
+        return Ok(());
+    };
+
+    tracing::debug!(
+        ?target,
+        "Capturing the last area without opening the picker"
+    );
+
+    match recording::take_screenshot(app.clone(), target.clone()).await {
+        Ok(path) => {
+            if crate::automation::should_open_screenshot_editor(app, &target) {
+                let _ = ShowCapWindow::ScreenshotEditor { path }.show(app).await;
+            }
+            Ok(())
+        }
+        Err(e) => Err(format!("Failed to take screenshot: {e}")),
+    }
+}
+
 /// One shortcut for both directions: it stops a recording that is running or
 /// starting up, otherwise it starts one in the currently selected mode.
 async fn toggle_recording_from_hotkey(app: AppHandle) -> Result<(), String> {
@@ -557,6 +596,7 @@ async fn handle_hotkey(app: AppHandle, action: HotkeyAction) -> Result<(), Strin
 
             open_area_screenshot_picker(&app)
         }
+        HotkeyAction::ScreenshotLastArea => screenshot_last_area(&app).await,
         HotkeyAction::Other => Ok(()),
     }
 }
