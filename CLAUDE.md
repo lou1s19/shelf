@@ -44,12 +44,16 @@ Unter `vendor/` liegen Kopien von Fremd-Crates, die per `[patch.crates-io]` in d
 Root-`Cargo.toml` eingebunden sind:
 
 - `vendor/tao`, `vendor/wgpu-hal` — von Cap übernommen.
-- `vendor/tauri-runtime-wry` — **eigener Patch.** Alle lesenden Zugriffe auf den
-  Fensterspeicher laufen über `win_borrow()`. Hintergrund: Tauris Fensterspeicher
-  ist ein `RefCell` hinter `unsafe impl Sync`; die Borrow-Sperre kann hängen
-  bleiben, obwohl niemand schreibt, und dann killt jeder Fensterzugriff die App
-  (tauri-apps/tauri#14801, #15003). Beim Öffnen des Aufnahme-Overlays passierte
-  das zuverlässig. Details im `CHANGELOG.md`.
+- `vendor/tauri-runtime-wry` — **eigener Patch.** Alle Zugriffe auf den
+  Fensterspeicher laufen über `win_borrow()` (lesend) bzw. `win_borrow_mut()`,
+  `win_insert_window()`, `win_remove_window()`, `win_detach_window()` (schreibend).
+  Hintergrund: Tauris Fensterspeicher ist ein `RefCell` hinter `unsafe impl Sync`;
+  die Borrow-Sperre kann hängen bleiben, obwohl niemand schreibt, und dann killt
+  jeder Fensterzugriff die App (tauri-apps/tauri#14801, #15003). Beim Öffnen des
+  Aufnahme-Overlays und beim Schließen eines Editor-Fensters passierte das
+  zuverlässig. Nie wieder `cell.borrow_mut()` direkt aufrufen: Der Panic landet auf
+  dem Main-Thread mitten in der Event-Schleife und hinterlässt eine App ohne
+  Event-Schleife. Details im `CHANGELOG.md`.
   **Nicht wegoptimieren**, ohne vorher zu prüfen, ob eine neuere Tauri-Version
   das Problem behoben hat.
 

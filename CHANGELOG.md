@@ -24,6 +24,42 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-08-28 (Kein Einfrieren mehr beim Schließen eines Fensters)
+
+Louis: „manchmal hängt sich die App auf", dazu ein macOS-Hang-Bericht. Der Bericht
+und `panics.log` zeigen die Kette: Screenshot-Editor schließen → `on_window_close`
+→ `win_borrow_mut` → **BorrowMutError** auf dem Main-Thread mitten in der
+Event-Schleife → der Panic wickelt sich bis `main.rs` zurück → die Tokio-Runtime
+wird abgebaut und wartet ewig auf einen Task, der im `fake_window`-Listener in
+`WebviewWindow::outer_position()` auf Antwort der toten Event-Schleife wartet.
+Ergebnis: Beachball, 45 Sekunden gemessen, nur per Abschuss zu beenden.
+
+- **Schreibzugriffe auf den Fensterspeicher können nicht mehr panicken.**
+  Der Fork sicherte bisher nur Lesezugriffe gegen die hängende `RefCell`-Sperre ab
+  (`win_borrow`). `win_borrow_mut` rief weiter direkt `borrow_mut()` auf und war
+  damit die eine Stelle, an der der bekannte Tauri-Fehler die App noch killen
+  konnte. Jetzt gilt derselbe Weg wie beim Lesen: hängende Sperre ohne echten
+  Zugriff → direkt schreiben, echter Zugriff → Schreibvorgang auslassen statt
+  abstürzen. Jeder Aufruf nennt seinen Kontext, damit die Logzeile verrät, welcher.
+- **Fenster-Änderungen gehen nicht mehr verloren.** Aus der Warteschlange für
+  aufgeschobene Fenster-Einfügungen ist eine für alle drei Lebenszyklus-Schritte
+  geworden (`Insert`, `Remove`, `Detach`), in der Reihenfolge, in der sie anfielen.
+  Ist der Speicher gerade belegt, wird die Änderung geparkt und im nächsten
+  Durchlauf der Event-Schleife angewandt, statt still verworfen zu werden.
+- **Der Prozess kann nicht mehr am Runtime-Abbau hängen bleiben.** `main.rs` fängt
+  einen Panic aus der Event-Schleife ab und beendet den Prozess sofort; ein
+  normales Ende bekommt für den Runtime-Abbau 2 Sekunden Frist statt unbegrenzt.
+  Das ist die Sicherheitsleine: Selbst ein anderer Absturz an dieser Stelle endet
+  ab jetzt als Absturz, nicht als eingefrorenes Fenster.
+- **Nebenbei geprüft und gehärtet:** Die Erkennung „Sperre hängt" zählt den
+  eigenen Zugriff jetzt vor der Prüfung mit, damit zwischen Prüfung und Zugriff
+  niemand mehr dazwischenrutschen kann (Fund aus dem Codex-Gegencheck).
+- Geprüft: `cargo check -p cap-desktop` ohne Warnungen, `cargo fmt --check`,
+  `cargo test -p cap-desktop --lib` 127 Tests grün, Codex-Gegencheck.
+- **Falls der Testlauf mal „crate `cocoa` required to be available in rlib format"
+  sagt:** Das ist ein kaputter `target/`-Stand, kein Code-Fehler. `cargo clean -p
+  cocoa -p metal -p wgpu-hal` reicht, ein volles `cargo clean` ist nicht nötig.
+
 ## 2026-08-27 (Kürzel für den letzten Bereich, hält den Hover)
 
 Louis: „mach das es klappt, mit hover ohne verzögerung, lass den mauszeiger auf

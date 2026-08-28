@@ -5,6 +5,7 @@ use cap_desktop_lib::DynLoggingLayer;
 use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 const TOKIO_WORKER_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
+const RUNTIME_SHUTDOWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn main() {
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
@@ -87,12 +88,26 @@ fn main() {
 
     install_panic_hook(logs_dir.clone());
 
-    tokio::runtime::Builder::new_multi_thread()
+    let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_stack_size(TOKIO_WORKER_THREAD_STACK_SIZE)
         .build()
-        .expect("Failed to build multi threaded tokio runtime")
-        .block_on(cap_desktop_lib::run(handle, logs_dir));
+        .expect("Failed to build multi threaded tokio runtime");
+
+    // A panic inside the Tauri event loop unwinds all the way out of `run`, and from
+    // then on nothing answers the window queries that background tasks block on. The
+    // runtime's own `Drop` waits for those tasks forever, which macOS reports as a
+    // 45-second hang instead of a crash. Both endings are therefore bounded here.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.block_on(cap_desktop_lib::run(handle, logs_dir));
+    }));
+
+    if outcome.is_err() {
+        eprintln!("[shelf] event loop ended in a panic; exiting immediately");
+        cap_desktop_lib::force_exit(1);
+    }
+
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
 }
 
 fn install_panic_hook(logs_dir: std::path::PathBuf) {
