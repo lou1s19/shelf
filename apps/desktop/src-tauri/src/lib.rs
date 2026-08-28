@@ -402,7 +402,9 @@ fn spawn_process_memory_sampler(app: AppHandle) {
     });
 }
 
-fn force_exit(code: i32) -> ! {
+/// Ends the process without running atexit handlers or destructors. Used on
+/// paths where waiting for a graceful teardown can hang forever.
+pub fn force_exit(code: i32) -> ! {
     unsafe extern "C" {
         fn _exit(code: i32) -> !;
     }
