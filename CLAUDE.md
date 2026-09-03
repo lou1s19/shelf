@@ -69,6 +69,19 @@ cargo build --no-default-features -p cap-desktop   # nur die Desktop-App
 ./target/debug/cap-desktop             # Binary direkt starten (Vite muss laufen)
 ```
 
+Zum Ausprobieren ohne neue Installation gibt es `scripts/dev-shelf.sh`:
+
+```sh
+scripts/dev-shelf.sh start     # Webserver + Debug-App starten
+scripts/dev-shelf.sh reload    # nach einer Rust-Aenderung neu bauen und neu starten
+scripts/dev-shelf.sh stop
+scripts/dev-shelf.sh status    # laeuft was, und wo liegen die Logs
+```
+
+Frontend-Aenderungen landen ohne `reload` in der laufenden App. Die Debug-App laeuft
+neben der installierten Shelf.app, mit eigenem Store und eigener Bildschirmaufnahme-
+Berechtigung.
+
 Die Dev-App speichert ihren Zustand unter
 `~/Library/Application Support/de.shelf.desktop.dev/store`, ihre Logs unter
 `~/Library/Logs/de.shelf.desktop/`. Panics landen zusätzlich in `panics.log`.

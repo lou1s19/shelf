@@ -2836,7 +2836,7 @@ fn build_pin_preview(image: &image::DynamicImage) -> Option<String> {
     Some(format!("data:image/jpeg;base64,{}", STANDARD.encode(&jpeg)))
 }
 
-const SHARED_FILE_DIR_NAME: &str = "Shelf shared files";
+pub(crate) const SHARED_FILE_DIR_NAME: &str = "Shelf shared files";
 const SHARED_FILE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// A screenshot is stored as `original.png` inside its own `.cap` folder. That name is fine
@@ -2889,7 +2889,7 @@ fn build_shareable_file(path: &Path) -> Result<Option<PathBuf>, String> {
 
 /// The temp folder is cleaned by the system eventually, but not soon enough to let links pile up
 /// for every screenshot ever dragged out.
-fn prune_shared_files(dir: &Path) {
+pub(crate) fn prune_shared_files(dir: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -2912,11 +2912,31 @@ fn prune_shared_files(dir: &Path) {
     }
 }
 
-/// Puts a screenshot on the clipboard in several shapes at once: the image data, so image
+/// Copies a single screenshot, ending any stacking run: whoever calls this wants exactly the
+/// one picture on the clipboard.
+pub async fn write_screenshot_to_clipboard(app: &AppHandle, path: &Path) -> Result<(), String> {
+    let result = put_on_clipboard(app, path).await;
+    crate::clipboard_stack::reset();
+    result
+}
+
+/// Copies a screenshot and keeps the ones copied just before it, stacked into one image.
+/// Returns how many screenshots ended up on the clipboard.
+pub async fn write_screenshot_to_clipboard_stacked(
+    app: &AppHandle,
+    path: &Path,
+) -> Result<usize, String> {
+    let copy = crate::clipboard_stack::extend(path);
+    put_on_clipboard(app, &copy.path).await?;
+    crate::clipboard_stack::confirm();
+    Ok(copy.count)
+}
+
+/// Puts an image on the clipboard in several shapes at once: the image data, so image
 /// capable apps paste the picture, plus the file URL and the plain path, so a terminal or any
 /// text field pastes something it can work with instead of nothing.
 #[cfg(target_os = "macos")]
-pub async fn write_screenshot_to_clipboard(_app: &AppHandle, path: &Path) -> Result<(), String> {
+async fn put_on_clipboard(_app: &AppHandle, path: &Path) -> Result<(), String> {
     use cocoa::appkit::{NSPasteboard, NSPasteboardTypePNG, NSPasteboardTypeString};
     use cocoa::base::{id, nil};
     use cocoa::foundation::{NSArray, NSData, NSString, NSUInteger, NSURL};
@@ -2979,7 +2999,7 @@ pub async fn write_screenshot_to_clipboard(_app: &AppHandle, path: &Path) -> Res
 /// Off macOS only the image goes onto the clipboard, through the app's own clipboard context:
 /// on X11 the clipboard belongs to whoever owns it, so a throwaway context would drop it again.
 #[cfg(not(target_os = "macos"))]
-pub async fn write_screenshot_to_clipboard(app: &AppHandle, path: &Path) -> Result<(), String> {
+async fn put_on_clipboard(app: &AppHandle, path: &Path) -> Result<(), String> {
     use clipboard_rs::Clipboard;
 
     let image = clipboard_rs::RustImageData::from_path(path.to_string_lossy().as_ref())

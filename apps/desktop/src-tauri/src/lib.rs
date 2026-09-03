@@ -11,6 +11,7 @@ mod camera_native;
 mod captions;
 mod cli;
 mod clip_thumbnails;
+mod clipboard_stack;
 mod crash_sentinel;
 mod deeplink_actions;
 mod drag_out;
@@ -2845,8 +2846,10 @@ pub fn is_valid_video(path: &std::path::Path) -> bool {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app))]
-async fn copy_screenshot_to_clipboard(app: AppHandle, path: String) -> Result<(), String> {
-    recording::write_screenshot_to_clipboard(&app, std::path::Path::new(&path)).await
+async fn copy_screenshot_to_clipboard(app: AppHandle, path: String) -> Result<u32, String> {
+    recording::write_screenshot_to_clipboard_stacked(&app, std::path::Path::new(&path))
+        .await
+        .map(|count| count as u32)
 }
 
 #[tauri::command]

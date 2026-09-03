@@ -1,3 +1,7 @@
 {
-	"recommendations": ["biomejs.biome", "rust-lang.rust-analyzer"]
+  "recommendations": [
+    "biomejs.biome",
+    "rust-lang.rust-analyzer",
+    "repowise-dev.repowise"
+  ]
 }

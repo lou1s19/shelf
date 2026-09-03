@@ -385,9 +385,13 @@ export default function () {
 								// no sign that anything happened. The tick fades in, holds,
 								// fades out, and only then is the card dropped.
 								const [copied, setCopied] = createSignal(false);
+								// How many screenshots the clipboard now holds. More than one
+								// means this copy joined the ones before it into one image.
+								const [copiedCount, setCopiedCount] = createSignal(1);
 								const copyThisCard = () =>
 									copy.mutate(undefined, {
-										onSuccess: () => {
+										onSuccess: (count) => {
+											setCopiedCount(count ?? 1);
 											setCopied(true);
 											setTimeout(() => setCopied(false), 700);
 											setTimeout(dismiss, 950);
@@ -609,7 +613,14 @@ export default function () {
 														"backdrop-filter": "blur(2px)",
 													}}
 												>
-													<IconLucideCheck class="text-white size-10" />
+													<div class="flex flex-col gap-1 items-center">
+														<IconLucideCheck class="text-white size-10" />
+														<Show when={copiedCount() > 1}>
+															<span class="text-xs font-medium text-white">
+																{copiedCount()} images
+															</span>
+														</Show>
+													</div>
 												</div>
 
 												<div
@@ -922,11 +933,13 @@ function createRecordingMutations(media: MediaEntry) {
 		);
 
 	const copy = createMutation(() => ({
-		mutationFn: async () => {
+		mutationFn: async (): Promise<number> => {
 			setActionState({
 				type: "copy",
 				state: { type: "rendering", state: { type: "starting" } },
 			});
+
+			let copiedCount = 1;
 
 			try {
 				if (isRecording) {
@@ -954,13 +967,15 @@ function createRecordingMutations(media: MediaEntry) {
 						type: "copy",
 						state: { type: "copying" },
 					});
-					await commands.copyScreenshotToClipboard(media.path);
+					copiedCount = await commands.copyScreenshotToClipboard(media.path);
 				}
 
 				setActionState({
 					type: "copy",
 					state: { type: "copied" },
 				});
+
+				return copiedCount;
 			} catch (error) {
 				console.error("Error in copy media:", error);
 				throw error;

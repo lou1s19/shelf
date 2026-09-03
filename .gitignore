@@ -81,3 +81,6 @@ analysis/
 analysis/plans/
 .ralphy
 tmp/
+
+# repowise-Index (lokal, nicht committen)
+.repowise/

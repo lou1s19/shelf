@@ -24,6 +24,29 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
 
+## 2026-09-03 (Mehrere Bilder untereinander in die Zwischenablage)
+
+Louis: mehrere Shelf-Bilder nacheinander kopieren soll sie untereinander in eine
+Zwischenablage legen. Kopiert man ein zweites Bild direkt nach dem ersten, liegt
+jetzt ein Bild aus beiden auf der Zwischenablage, von oben nach unten, jeweils
+mittig auf der Breite des breitesten, mit 12 px Abstand dazwischen.
+
+- Neues Modul `apps/desktop/src-tauri/src/clipboard_stack.rs`. Eine Serie läuft
+  weiter, solange die Zwischenablage noch das hält, was die App zuletzt
+  geschrieben hat (auf macOS über `NSPasteboard changeCount`), und der letzte
+  Kopiervorgang keine 10 Sekunden her ist. Sonst fängt sie von vorne an.
+- `write_screenshot_to_clipboard` kopiert weiter genau ein Bild und beendet eine
+  laufende Serie. Neu daneben: `write_screenshot_to_clipboard_stacked`, das die
+  Serie fortsetzt und die Anzahl zurückgibt. Der Tauri-Befehl
+  `copy_screenshot_to_clipboard` gibt diese Anzahl jetzt zurück.
+- Die Shelf-Karte zeigt beim Häkchen „N images", sobald mehr als eins drauf ist.
+- Das automatische Kopieren nach einem Screenshot (`ClipboardOnly`) stapelt
+  bewusst nicht: dort ist jeder Screenshot eine eigene Absicht.
+- Neu: `scripts/dev-shelf.sh` (start/reload/stop/status) startet die Debug-App
+  neben der installierten Shelf.app, damit Änderungen ohne kompletten
+  Neubau-und-Installieren-Lauf ausprobiert werden können.
+- **Noch nicht gebaut und nicht getestet**, auf Wunsch von Louis erst eingebaut.
+
 ## 2026-08-28 (Kein Einfrieren mehr beim Schließen eines Fensters)
 
 Louis: „manchmal hängt sich die App auf", dazu ein macOS-Hang-Bericht. Der Bericht
