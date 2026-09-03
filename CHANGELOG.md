@@ -64,8 +64,15 @@ unten gesetzt, jeweils mittig auf der Breite des breitesten, mit 12 px Abstand.
   Neubau-und-Installieren-Lauf ausprobiert werden können. Das Skript richtet
   fehlende Teile selbst ein: node_modules, native ffmpeg-/onnxruntime-Deps
   (`node scripts/setup.js`) und die Sidecar-Binaries.
+- **Einstellbar:** Einstellungen › Screenshots › „Copy several at once" mit drei
+  Werten: `shortcut` (Standard, nur mit `Cmd+Shift+C`), `always` (jedes Kopieren
+  direkt nach dem vorherigen hängt an, Louis' ursprünglicher Wunsch) und `off`.
+  Der Modus wird im Overlay ausgewertet, nicht in Rust: dort liegt die Taste.
 - Getestet in der installierten App: `Cmd+C`, dann `Cmd+Shift+C` ergibt ein Bild
   aus beiden. Codex-Gegencheck eingearbeitet, CI grün.
+- `install-shelf.sh` baut nur noch die `.app`, ohne DMG und Updater-Archiv. Seit
+  main den Update-Feed hat, verlangte das Updater-Archiv den Release-Schlüssel,
+  den ein lokaler Test-Build nicht braucht.
 - **Testweg:** zwei Kopien der App gleichzeitig laufen zu lassen kostet Zeit statt
   sie zu sparen. Globale Kürzel bekommt nur die zuerst gestartete App, und beide
   legen ihre Shelf-Leiste in dieselbe Bildschirmecke. Zum Testen deshalb
