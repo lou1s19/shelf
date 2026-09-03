@@ -50,8 +50,12 @@ cd "$REPO"
 BUILD_LOG="$(mktemp -t shelf-build)"
 # macOS ships bash 3.2, where an empty array under `set -u` counts as unbound.
 # The release build passes no flags, so expand it only when it has entries.
+# `--bundles app` skips the DMG, and the extra config switches off the updater archive:
+# that one is signed with the release key, which a local test install has no business
+# needing. Both only affect what is packaged, not the app itself.
 if ! pnpm --dir apps/desktop tauri build ${BUILD_FLAGS[@]+"${BUILD_FLAGS[@]}"} \
-	--config src-tauri/tauri.prod.conf.json >"$BUILD_LOG" 2>&1; then
+	--bundles app --config src-tauri/tauri.prod.conf.json \
+	--config '{"bundle":{"createUpdaterArtifacts":false}}' >"$BUILD_LOG" 2>&1; then
 	echo "==> build failed, nothing installed" >&2
 	tail -40 "$BUILD_LOG" >&2
 	exit 1

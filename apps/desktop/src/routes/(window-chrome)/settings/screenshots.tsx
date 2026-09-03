@@ -301,6 +301,17 @@ function ScreenshotSettingsInner(props: {
 						]}
 					/>
 					<SelectSettingItem
+						label="Copy several at once"
+						description="Copying a card can add it under the ones copied before it, as one image."
+						value={settings.screenshotStacking ?? "shortcut"}
+						onChange={(value) => handleChange("screenshotStacking", value)}
+						options={[
+							{ text: "With Cmd+Shift+C", value: "shortcut" },
+							{ text: "Every copy right after another", value: "always" },
+							{ text: "Off", value: "off" },
+						]}
+					/>
+					<SelectSettingItem
 						label="Hide the overlay card"
 						description="How long a screenshot stays pinned in the overlay. It waits for you by default."
 						value={settings.screenshotPinAutoHideSeconds ?? 0}

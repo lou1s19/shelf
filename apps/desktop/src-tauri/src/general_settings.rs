@@ -34,6 +34,20 @@ pub enum PostScreenshotBehaviour {
     ClipboardOnly,
 }
 
+/// When copying a screenshot adds it under the ones copied before it, into one image.
+#[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ScreenshotStacking {
+    /// Every copy replaces what was on the clipboard.
+    Off,
+    /// Default: Cmd+C copies the one card, Cmd+Shift+C adds it under the last copy.
+    #[default]
+    Shortcut,
+    /// Every copy that follows another one adds to it, no modifier needed. Handy for
+    /// collecting a series, surprising when two copies in a row were meant separately.
+    Always,
+}
+
 #[derive(Default, Serialize, Deserialize, Type, Debug, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum EditorPreviewQuality {
@@ -159,6 +173,8 @@ pub struct GeneralSettingsStore {
     pub post_studio_recording_behaviour: PostStudioRecordingBehaviour,
     #[serde(default)]
     pub post_screenshot_behaviour: PostScreenshotBehaviour,
+    #[serde(default)]
+    pub screenshot_stacking: ScreenshotStacking,
     /// Seconds a pinned screenshot stays on screen before it removes itself.
     /// `None` means it stays until it is dismissed by hand.
     #[serde(default = "default_screenshot_pin_auto_hide_seconds")]
@@ -290,6 +306,7 @@ impl Default for GeneralSettingsStore {
             window_transparency: false,
             post_studio_recording_behaviour: PostStudioRecordingBehaviour::OpenEditor,
             post_screenshot_behaviour: PostScreenshotBehaviour::ShowOverlay,
+            screenshot_stacking: ScreenshotStacking::default(),
             screenshot_pin_auto_hide_seconds: default_screenshot_pin_auto_hide_seconds(),
             custom_cursor_capture: cap_recording::DEFAULT_CUSTOM_CURSOR_CAPTURE,
             recording_countdown: Some(3),

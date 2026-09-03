@@ -100,6 +100,18 @@ export default function () {
 	const screenshotAutoHideMs = () =>
 		autoHideMsFromSettings(settings.data?.screenshotPinAutoHideSeconds);
 
+	/** Whether this copy adds to the last one, going by the setting and the shift key. */
+	const shouldStack = (shift: boolean) => {
+		switch (settings.data?.screenshotStacking ?? "shortcut") {
+			case "off":
+				return false;
+			case "always":
+				return true;
+			default:
+				return shift;
+		}
+	};
+
 	// Cmd+C over a card. Measured on a mixed-DPI multi-monitor setup: while the
 	// pointer rests on a card, the hit test in fake_window.rs flaps, so the panel
 	// loses focus and the webview sees mouseleave for a moment even though the
@@ -173,7 +185,7 @@ export default function () {
 	};
 
 	createTauriEventListener(events.onPinCopyPress, (payload) =>
-		runCopy(payload.stack),
+		runCopy(shouldStack(payload.stack)),
 	);
 
 	const onWindowFocus = () => armCopyShortcut();
@@ -181,7 +193,7 @@ export default function () {
 		// `key` is uppercase while shift is down, so the code is what identifies the key.
 		if (event.code !== "KeyC" || !(event.metaKey || event.ctrlKey)) return;
 		event.preventDefault();
-		runCopy(event.shiftKey);
+		runCopy(shouldStack(event.shiftKey));
 	};
 	const onVisibilityChange = () => {
 		if (document.hidden) releaseCopyShortcut();

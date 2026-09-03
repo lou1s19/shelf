@@ -959,7 +959,7 @@ export type FrameStyle =
 "macbook"
 export type FrameTheme = "dark" | "light"
 export type FramesRendered = { renderedCount: number; totalFrames: number; type: "FramesRendered" }
-export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme; lastVersion?: string | null; windowTransparency?: boolean; postStudioRecordingBehaviour?: PostStudioRecordingBehaviour; postScreenshotBehaviour?: PostScreenshotBehaviour; 
+export type GeneralSettingsStore = { instanceId?: string; uploadIndividualFiles?: boolean; hideDockIcon?: boolean; autoCreateShareableLink?: boolean; enableNotifications?: boolean; disableAutoOpenLinks?: boolean; hasCompletedStartup?: boolean; theme?: AppTheme; lastVersion?: string | null; windowTransparency?: boolean; postStudioRecordingBehaviour?: PostStudioRecordingBehaviour; postScreenshotBehaviour?: PostScreenshotBehaviour; screenshotStacking?: ScreenshotStacking; 
 /**
  * Seconds a pinned screenshot stays on screen before it removes itself.
  * `None` means it stays until it is dismissed by hand.
@@ -1163,6 +1163,23 @@ export type ScreenshotOcrResult = { text: string; lines: ScreenshotOcrLine[]; en
  */
 export type ScreenshotPinPreview = { path: string; preview: string }
 export type ScreenshotProjectExport = { imageBytes: number[]; config: ProjectConfiguration; imageWidth: number; imageHeight: number }
+/**
+ * When copying a screenshot adds it under the ones copied before it, into one image.
+ */
+export type ScreenshotStacking = 
+/**
+ * Every copy replaces what was on the clipboard.
+ */
+"off" | 
+/**
+ * Default: Cmd+C copies the one card, Cmd+Shift+C adds it under the last copy.
+ */
+"shortcut" | 
+/**
+ * Every copy that follows another one adds to it, no modifier needed. Handy for
+ * collecting a series, surprising when two copies in a row were meant separately.
+ */
+"always"
 export type SegmentRecordings = { display: Video; camera: Video | null; mic: Audio | null; system_audio: Audio | null }
 export type SerializedEditorInstance = { framesSocketUrl: string; recordingDuration: number; savedProjectConfig: ProjectConfiguration; recordings: ProjectRecordingsMeta; path: string; 
 /**
