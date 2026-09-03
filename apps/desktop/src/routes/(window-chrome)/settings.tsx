@@ -6,6 +6,7 @@ import { createSignal, For, onMount, Show, Suspense } from "solid-js";
 import toast from "solid-toast";
 import { CapErrorBoundary } from "~/components/CapErrorBoundary";
 import { commands } from "~/utils/tauri";
+import IconLucideKeyRound from "~icons/lucide/key-round";
 import IconLucideTerminal from "~icons/lucide/terminal";
 import IconLucideVideo from "~icons/lucide/video";
 import IconLucideZap from "~icons/lucide/zap";
@@ -99,6 +100,11 @@ export default function Settings(props: RouteSectionProps) {
 			href: "cli",
 			name: "CLI",
 			icon: IconLucideTerminal,
+		},
+		{
+			href: "license",
+			name: "License",
+			icon: IconLucideKeyRound,
 		},
 		{
 			href: "experimental",

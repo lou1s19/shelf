@@ -1463,6 +1463,15 @@ pub async fn start_recording(
         inputs.mode = RecordingMode::Studio;
     }
 
+    crate::licensing::require(
+        &app,
+        match inputs.mode {
+            RecordingMode::Studio => shelf_licensing::Feature::StudioRecording,
+            RecordingMode::Instant => shelf_licensing::Feature::InstantRecording,
+            RecordingMode::Screenshot => shelf_licensing::Feature::Screenshot,
+        },
+    )?;
+
     let is_camera_only = matches!(inputs.capture_target, ScreenCaptureTarget::CameraOnly);
 
     if is_camera_only {
@@ -2522,12 +2531,18 @@ pub async fn take_screenshot(
     use image::ImageEncoder;
     use std::time::Instant;
 
+    crate::licensing::require(&app, shelf_licensing::Feature::Screenshot)?;
+
     let general_settings = GeneralSettingsStore::get(&app).ok().flatten();
     let general_settings = general_settings.as_ref();
 
     // Read without consuming: the frontend still asks whether to open the editor after this
     // command returns, and that call is what clears the request.
     let ocr_requested = app.state::<crate::hotkeys::PendingOcrCapture>().is_active();
+
+    if ocr_requested {
+        crate::licensing::require(&app, shelf_licensing::Feature::Ocr)?;
+    }
 
     let project_name = format_project_name(
         general_settings

@@ -784,6 +784,7 @@ pub enum CapWindowId {
     Onboarding,
     Teleprompter,
     TextPin,
+    UpdateRequired,
 }
 
 impl FromStr for CapWindowId {
@@ -802,6 +803,7 @@ impl FromStr for CapWindowId {
             "onboarding" => Self::Onboarding,
             "teleprompter" => Self::Teleprompter,
             "text-pin" => Self::TextPin,
+            "update-required" => Self::UpdateRequired,
             s if s.starts_with("editor-") => Self::Editor {
                 id: s
                     .replace("editor-", "")
@@ -852,6 +854,7 @@ impl std::fmt::Display for CapWindowId {
             Self::Onboarding => write!(f, "onboarding"),
             Self::Teleprompter => write!(f, "teleprompter"),
             Self::TextPin => write!(f, "text-pin"),
+            Self::UpdateRequired => write!(f, "update-required"),
         }
     }
 }
@@ -876,6 +879,7 @@ impl CapWindowId {
             Self::TargetSelectOverlay { .. } => "Shelf Target Select".to_string(),
             Self::Teleprompter => "Shelf Teleprompter".to_string(),
             Self::TextPin => "Shelf Copied Text".to_string(),
+            Self::UpdateRequired => "Update Shelf".to_string(),
             _ => "Shelf".to_string(),
         }
     }
@@ -889,6 +893,7 @@ impl CapWindowId {
                 | Self::Settings
                 | Self::ModeSelect
                 | Self::Onboarding
+                | Self::UpdateRequired
         )
     }
 
@@ -948,6 +953,7 @@ impl CapWindowId {
             Self::Camera => (200.0, 200.0),
             Self::ModeSelect => (580.0, 340.0),
             Self::Onboarding => (860.0, 690.0),
+            Self::UpdateRequired => (520.0, 400.0),
             Self::Teleprompter => (420.0, 220.0),
             _ => return None,
         })
@@ -990,10 +996,26 @@ pub enum ShowCapWindow {
         path: PathBuf,
     },
     Onboarding,
+    UpdateRequired,
 }
 
 impl ShowCapWindow {
+    /// The windows that are a paid feature in themselves. Checked here rather
+    /// than at each caller: the tray, the hotkeys, the automations and the
+    /// frontend all come through this one function.
+    fn required_license(&self) -> Option<shelf_licensing::Feature> {
+        match self {
+            Self::Teleprompter => Some(shelf_licensing::Feature::Teleprompter),
+            Self::ScreenshotEditor { .. } => Some(shelf_licensing::Feature::ScreenshotEditor),
+            _ => None,
+        }
+    }
+
     pub async fn show(&self, app: &AppHandle<Wry>) -> tauri::Result<WebviewWindow> {
+        if let Some(feature) = self.required_license() {
+            crate::licensing::require(app, feature).map_err(|e| anyhow!(e))?;
+        }
+
         if let Self::Editor { project_path } = &self {
             let state = app.state::<EditorWindowIds>();
             let window_id = {
@@ -1901,6 +1923,25 @@ impl ShowCapWindow {
                         warn!("Failed to position Onboarding window on Windows: {}", e);
                     }
                 }
+
+                window.show().ok();
+                window.set_focus().ok();
+
+                window
+            }
+            Self::UpdateRequired => {
+                let window = self
+                    .window_builder(app, "/update-required")
+                    .inner_size(520.0, 400.0)
+                    .min_inner_size(520.0, 400.0)
+                    .resizable(false)
+                    .maximizable(false)
+                    .always_on_top(true)
+                    .center()
+                    .focused(true)
+                    .shadow(true)
+                    .build()?;
+                lock_window_text_scale(&window);
 
                 window.show().ok();
                 window.set_focus().ok();
@@ -2865,6 +2906,7 @@ impl ShowCapWindow {
             ShowCapWindow::Teleprompter => CapWindowId::Teleprompter,
             ShowCapWindow::TextPin { .. } => CapWindowId::TextPin,
             ShowCapWindow::Onboarding => CapWindowId::Onboarding,
+            ShowCapWindow::UpdateRequired => CapWindowId::UpdateRequired,
             ShowCapWindow::ScreenshotEditor { path } => {
                 let state = app.state::<ScreenshotEditorWindowIds>();
                 let s = state.ids.lock().unwrap();

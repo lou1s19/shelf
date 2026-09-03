@@ -1319,6 +1319,8 @@ pub async fn transcribe_audio(
     language: String,
     engine: TranscriptionEngine,
 ) -> Result<CaptionData, String> {
+    crate::licensing::require(&app, shelf_licensing::Feature::Captions)?;
+
     log::info!("=== TRANSCRIBE AUDIO COMMAND START ===");
     log::info!("Video path: {}", video_path);
     log::info!("Model path: {}", model_path);

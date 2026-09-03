@@ -138,6 +138,11 @@ impl AutomationHost for DesktopAutomationHost {
             "Automation: exporting"
         );
 
+        // The automation host builds its own exporter instead of going through
+        // the export commands, so the gate has to be repeated here. Without it
+        // one rule "on recording finished, export" is unlimited free exporting.
+        crate::licensing::require(&self.app, shelf_licensing::Feature::Export)?;
+
         let settings = build_desktop_export_settings(profile);
 
         let output_path = match destination {
@@ -320,6 +325,8 @@ impl AutomationHost for DesktopAutomationHost {
             .as_ref()
             .or(ctx.output_path.as_ref())
             .ok_or("No image path available for OCR")?;
+
+        crate::licensing::require(&self.app, shelf_licensing::Feature::Ocr)?;
 
         info!(path = %path.display(), "Automation: recognizing text");
 

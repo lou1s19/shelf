@@ -1,0 +1,26 @@
+[package]
+name = "shelf-licensing"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+base64 = "0.22.1"
+ed25519-dalek = { version = "2.1", default-features = false, features = ["alloc", "std"] }
+semver = "1.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+clap = { version = "4.5", features = ["derive"], optional = true }
+rand_core = { version = "0.6", features = ["getrandom"], optional = true }
+
+[features]
+default = []
+# Minting is the private half: it needs the secret key and only ever runs on
+# Louis' machine, never in the shipped app.
+mint = ["dep:clap", "dep:rand_core", "ed25519-dalek/rand_core"]
+
+[[bin]]
+name = "shelf-license"
+path = "src/bin/shelf_license.rs"
+required-features = ["mint"]

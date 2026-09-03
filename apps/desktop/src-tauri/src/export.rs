@@ -1043,6 +1043,8 @@ pub async fn export_video(
     settings: ExportSettings,
     editor: OptionalWindowEditorInstance,
 ) -> Result<PathBuf, String> {
+    crate::licensing::require(window.app_handle(), shelf_licensing::Feature::Export)?;
+
     let window_label = window.label().to_string();
     Box::pin(run_export_command(move || async move {
         let cancellation_guard =
@@ -1070,6 +1072,8 @@ pub async fn export_video_with_id(
     export_id: String,
     editor: OptionalWindowEditorInstance,
 ) -> Result<PathBuf, String> {
+    crate::licensing::require(window.app_handle(), shelf_licensing::Feature::Export)?;
+
     let window_label = window.label().to_string();
     Box::pin(run_export_command(move || async move {
         let cancellation_guard = ExportCancellationGuard::new(export_id, Some(window_label));
@@ -1097,6 +1101,8 @@ pub async fn export_video_to_file(
     file_type: String,
     editor: OptionalWindowEditorInstance,
 ) -> Result<PathBuf, String> {
+    crate::licensing::require(window.app_handle(), shelf_licensing::Feature::Export)?;
+
     let dialog_window = window.clone();
     let window_label = window.label().to_string();
     Box::pin(run_export_command(move || async move {
