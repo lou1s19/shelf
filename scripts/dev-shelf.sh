@@ -15,6 +15,7 @@
 # shortcuts are whatever that store holds, not the ones of the installed Shelf.
 
 set -euo pipefail
+trap 'echo "==> stopped at line $LINENO" >&2' ERR
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_DIR="${TMPDIR:-/tmp}/shelf-dev"
@@ -50,8 +51,10 @@ stop_pid_file() {
 	rm -f "$pid_file"
 }
 
+# `|| true` because an empty port makes lsof exit 1, which under `pipefail` would end
+# the script mid-assignment without a word.
 port_owner() {
-	lsof -ti "tcp:$WEB_PORT" 2>/dev/null | head -1
+	lsof -ti "tcp:$WEB_PORT" 2>/dev/null | head -1 || true
 }
 
 start_web() {
