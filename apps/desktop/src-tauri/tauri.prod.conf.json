@@ -8,7 +8,7 @@
 	},
 	"plugins": {
 		"updater": {
-			"comment": "Shelf's own feed. The pubkey below is the public half of ~/.shelf-licensing/tauri-update.key; an update that is not signed with that key is refused, so a hijacked domain cannot install anything. dialog is false because Shelf shows its own update window.",
+			"comment": "Shelf's own feed. The pubkey below is the public half of ~/.shelf-licensing/tauri-update.key; an update that is not signed with that key is refused, so a hijacked domain cannot install anything. dialog is false because Shelf shows its own update window. bundle.createUpdaterArtifacts stays off although updates are on: Tauri would pack the update during bundling, from the app as it is before signing and notarisation, and would ship a package macOS refuses to open. scripts/release-shelf.sh packs and signs it afterwards, from the stapled bundle.",
 			"active": true,
 			"endpoints": ["https://shelf-website-mu.vercel.app/updates/latest.json"],
 			"dialog": false,
@@ -16,7 +16,7 @@
 		}
 	},
 	"bundle": {
-		"createUpdaterArtifacts": true,
+		"createUpdaterArtifacts": false,
 		"macOS": {
 			"entitlements": "Entitlements.plist"
 		},

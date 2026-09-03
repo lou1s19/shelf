@@ -83,50 +83,51 @@ rm -f "$BUILD_LOG"
 SOURCE="$BUNDLE_DIR/$APP_NAME"
 [ -d "$SOURCE" ] || { echo "no bundle at $SOURCE" >&2; exit 1; }
 
-# Written as an `if` rather than `[ -d ... ] && ...`: that form is one list, and
-# when the test fails the list fails, which under `set -e` ends the script. On a
-# first run the directory does not exist yet, so it aborted before building.
-if [ -d "$OUT" ]; then
-	/bin/rm -rf "$OUT"
-fi
-mkdir -p "$OUT"
-# ditto drops the extended attributes an iCloud-synced folder keeps adding,
-# which codesign refuses to sign around.
-ditto --norsrc --noextattr --noacl "$SOURCE" "$OUT/$APP_NAME"
-xattr -cr "$OUT/$APP_NAME"
+# Everything up to the finished DMG happens outside the repo. The repo sits on
+# the iCloud-synced Desktop, and iCloud keeps putting extended attributes back on
+# files there. codesign refuses to sign a binary carrying them ("resource fork,
+# Finder information, or similar detritus not allowed"), and clearing them first
+# does not help, because the next sync puts them back mid-run.
+WORK="$(mktemp -d -t shelf-release)"
+trap '/bin/rm -rf "$WORK"' EXIT
+APP="$WORK/$APP_NAME"
+
+# ditto drops resource forks, extended attributes and ACLs on the way out.
+ditto --norsrc --noextattr --noacl "$SOURCE" "$APP"
+xattr -cr "$APP"
 
 echo "==> signing"
 # Inside out: libraries, then frameworks, then executables, then the bundle.
 # A bundle signed before its contents fails notarisation.
-find "$OUT/$APP_NAME" -name "*.dylib" -type f -print0 |
+find "$APP" -name "*.dylib" -type f -print0 |
 	xargs -0 -n1 codesign --force --options runtime --timestamp -s "$IDENTITY" >/dev/null
-for fw in "$OUT/$APP_NAME"/Contents/Frameworks/*.framework; do
+for fw in "$APP"/Contents/Frameworks/*.framework; do
 	[ -d "$fw" ] || continue
 	if [ -d "$fw/Versions/A" ]; then
 		codesign --force --options runtime --timestamp -s "$IDENTITY" "$fw/Versions/A" >/dev/null
 	fi
 	codesign --force --options runtime --timestamp -s "$IDENTITY" "$fw" >/dev/null
 done
-for bin in "$OUT/$APP_NAME"/Contents/MacOS/*; do
+for bin in "$APP"/Contents/MacOS/*; do
 	codesign --force --options runtime --timestamp -s "$IDENTITY" "$bin" >/dev/null
 done
 codesign --force --options runtime --timestamp \
 	--entitlements "$REPO/apps/desktop/src-tauri/Entitlements.plist" \
-	-s "$IDENTITY" "$OUT/$APP_NAME" >/dev/null
-codesign --verify --strict --deep "$OUT/$APP_NAME"
+	-s "$IDENTITY" "$APP" >/dev/null
+codesign --verify --strict --deep "$APP"
 
 echo "==> notarising the app (a few minutes)"
-ditto -c -k --keepParent "$OUT/$APP_NAME" "$OUT/notarize-app.zip"
-xcrun notarytool submit "$OUT/notarize-app.zip" \
+ditto -c -k --keepParent "$APP" "$WORK/notarize-app.zip"
+xcrun notarytool submit "$WORK/notarize-app.zip" \
 	--keychain-profile "$NOTARY_PROFILE" --wait
-xcrun stapler staple "$OUT/$APP_NAME"
-rm -f "$OUT/notarize-app.zip"
+xcrun stapler staple "$APP"
+rm -f "$WORK/notarize-app.zip"
 
 echo "==> packing the download"
-DMG="$OUT/Shelf-$VERSION.dmg"
-STAGE="$OUT/dmg-stage"
+DMG="$WORK/Shelf-$VERSION.dmg"
+STAGE="$WORK/dmg-stage"
 mkdir -p "$STAGE"
-ditto "$OUT/$APP_NAME" "$STAGE/$APP_NAME"
+ditto "$APP" "$STAGE/$APP_NAME"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "Shelf" -srcfolder "$STAGE" -ov -format UDZO "$DMG" >/dev/null
 /bin/rm -rf "$STAGE"
@@ -139,14 +140,27 @@ xcrun stapler staple "$DMG"
 echo "==> packing the update"
 # Built from the stapled app on purpose: the updater replaces the installed
 # bundle with exactly this, so it has to carry the notarisation ticket too.
-FEED_BUNDLE="$OUT/feed-bundle"
+FEED_BUNDLE="$WORK/feed-bundle"
 mkdir -p "$FEED_BUNDLE"
-tar -czf "$FEED_BUNDLE/Shelf.app.tar.gz" -C "$OUT" "$APP_NAME"
+tar -czf "$FEED_BUNDLE/Shelf.app.tar.gz" -C "$WORK" "$APP_NAME"
 pnpm --dir apps/desktop exec tauri signer sign \
 	-f "$UPDATE_KEY" -p "" "$FEED_BUNDLE/Shelf.app.tar.gz" >/dev/null
 node "$REPO/scripts/make-update-feed.mjs" \
 	--version "$VERSION" --base-url "$BASE_URL" \
-	--bundle-dir "$FEED_BUNDLE" --out "$OUT/website"
+	--bundle-dir "$FEED_BUNDLE" --out "$WORK/website"
+
+# Only the finished, signed artefacts come back into the repo. Nothing here is
+# signed again afterwards, so iCloud may decorate them all it likes.
+# Written as an `if` rather than `[ -d ... ] && ...`: that form is one list, and
+# when the test fails the list fails, which under `set -e` ends the script. On a
+# first run the directory does not exist yet, so it aborted before building.
+if [ -d "$OUT" ]; then
+	/bin/rm -rf "$OUT"
+fi
+mkdir -p "$OUT"
+ditto "$DMG" "$OUT/Shelf-$VERSION.dmg"
+ditto "$WORK/website" "$OUT/website"
+DMG="$OUT/Shelf-$VERSION.dmg"
 
 echo
 echo "==> done"
