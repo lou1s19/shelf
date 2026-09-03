@@ -24,6 +24,7 @@ mod general_settings;
 mod hotkeys;
 mod http_client;
 mod import;
+mod licensing;
 mod notifications;
 mod panel_manager;
 mod permissions;
@@ -4609,6 +4610,10 @@ fn specta_builder() -> tauri_specta::Builder {
             updates::updates_check,
             updates::updates_download_and_install,
             updates::updates_channel_changed,
+            licensing::licensing_status,
+            licensing::licensing_activate,
+            licensing::licensing_deactivate,
+            licensing::licensing_refresh,
         ])
         .events(tauri_specta::collect_events![
             RecordingOptionsChanged,
@@ -4643,6 +4648,7 @@ fn specta_builder() -> tauri_specta::Builder {
             DevicesUpdated,
             updates::UpdateDownloadProgress,
             updates::UpdateReady,
+            licensing::LicensingChanged,
         ])
         .error_handling(tauri_specta::ErrorHandlingMode::Throw)
         .typ::<ProjectConfiguration>()
@@ -4879,6 +4885,9 @@ pub async fn run(recording_logging_handle: LoggingHandle, logs_dir: PathBuf) {
             app.manage(FinalizingRecordings::default());
             app.manage(updates::UpdatesState::default());
             updates::spawn_background_loop(app.clone());
+            app.manage(licensing::LicensingState::default());
+            licensing::init(&app);
+            licensing::spawn_background_loop(app.clone());
 
             #[cfg(unix)]
             {

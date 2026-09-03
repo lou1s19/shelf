@@ -91,6 +91,8 @@ cap-automation = { path = "../../../crates/automation" }
 cap-cli-install = { path = "../../../crates/cli-install", features = ["specta"] }
 cap-enc-ffmpeg = { path = "../../../crates/enc-ffmpeg" }
 cap-media-info = { path = "../../../crates/media-info" }
+shelf-licensing = { path = "../../../crates/licensing" }
+ed25519-dalek = { version = "2.1", default-features = false, features = ["alloc", "std"] }
 scap-targets = { path = "../../../crates/scap-targets" }
 scap-screencapturekit = { path = "../../../crates/scap-screencapturekit" }
 scap-direct3d = { path = "../../../crates/scap-direct3d" }

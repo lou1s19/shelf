@@ -7,8 +7,11 @@ Verlauf dieses Forks. Neueste Einträge oben. Ist die Übergabe an den nächsten
 Die vollständige Liste mit Begründungen steht in `TODO.md`. Kurz:
 Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
 
-- **Update-Weg fehlt.** Der Updater ist ein Platzhalter, neue Versionen werden
-  aus dem Quellcode gebaut.
+- **Notarisierung fehlt noch.** `scripts/release-shelf.sh` erledigt sie, braucht
+  aber einmalig ein Profil im Schlüsselbund (app-spezifisches Passwort von
+  appleid.apple.com). Ohne das startet die App auf keinem fremden Mac.
+- **Das Repo ist privat.** Sobald die App weitergegeben wird, verlangt die AGPL
+  den Quelltext. Der Quellcode-Link auf der Website zeigt derzeit ins Private.
 - **Rust-Crates heißen weiter `cap-*`**, die npm-Pakete `@cap/*`, die
   Sidecar-Binaries `cap-cli`, `cap-exporter`, `cap-muxer`. Rein intern, aber im
   App-Paket zu finden. Eine Umbenennung ist mechanisch, aber breit.
@@ -23,6 +26,44 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
   den Main-Thread-Sprung beim Kamerafenster (`windows.rs:1880`), und
   Einstellungen werden von Rust und Frontend ohne gemeinsame Sperre gelesen
   und geschrieben (`recording_settings.rs:51`).
+
+## 2026-09-03 (Update-Zwang und Bezahlschranke, beide noch inaktiv)
+
+Louis will die App auf der Website anbieten und sich offenhalten, sie später
+kostenpflichtig zu machen, ohne dass jemand auf der freien Fassung sitzen
+bleibt. Beides ist eingebaut und tut heute nichts.
+
+- **Neues Crate `crates/licensing`** mit einem signierten Umschlagformat
+  (`SHELF1.<inhalt>.<signatur>`, Ed25519) für zwei Zwecke: die Policy-Datei auf
+  der Website und die Lizenzschlüssel. Ein Format, ein Schlüsselpaar, 17 Tests.
+- **Policy-Prüfung** (`licensing.rs`): alle sechs Stunden wird
+  `<website>/policy.txt` geholt. Darin stehen signiert die Mindestversion und
+  die Liste der bezahlten Funktionen. Kein Netz heißt: die zuletzt gespeicherte
+  Policy gilt weiter, gesperrt wird nie wegen einer schlechten Verbindung. Eine
+  ältere Policy kann eine gesetzte Untergrenze nicht wieder aufheben.
+- **Eine einzige Durchsetzungsstelle**, `licensing::require`. Sie hängt an
+  `start_recording`, `take_screenshot` (inklusive OCR) und den drei
+  Export-Befehlen. Liegt die Version unter der Untergrenze, wird alles
+  abgelehnt und das Fenster `update-required` geht auf.
+- **Lizenzschlüssel werden offline geprüft.** Kein Konto, kein Server, keine
+  Daten nach draußen. Einlösen unter Einstellungen › License.
+- **Updater wieder scharf.** `updates.rs` war ein Platzhalter und spricht jetzt
+  wieder mit einem Feed, allerdings mit Shelfs eigenem Schlüssel und eigener
+  Adresse statt Caps CDN. Ohne konfigurierten Endpunkt (Dev-Build) meldet er
+  weiter „nichts zu tun" und geht nicht ins Netz.
+- **`scripts/release-shelf.sh`** baut, signiert von innen nach außen,
+  notarisiert, klebt das Ticket an, packt DMG und Update-Paket und erzeugt
+  `latest.json`. Bricht ab, wenn Signatur oder Notarisierung fehlen, statt einen
+  Download zu erzeugen, der nur hier funktioniert.
+- **Schlüssel liegen in `~/.shelf-licensing/`**, nicht im Repo:
+  `tauri-update.key` für Updates, `secret.key` für Policy und Lizenzen. Gehen
+  sie verloren, ist die veröffentlichte App eine Sackgasse. Sicherungen machen.
+- Ablauf und Schaltbefehle stehen in `docs/RELEASE.md`, die Dateien für die
+  Website in `release/website/`.
+- **Grenze, ehrlich benannt:** Shelf ist AGPLv3. Käufer bekommen den Quelltext
+  und dürfen die Schranke entfernen und weitergeben. Das ist ein Türschloss,
+  kein Tresor.
+- Zum Entwickeln schaltet `SHELF_POLICY_URL=` die Prüfung ganz ab.
 
 ## 2026-08-28 (Kein Einfrieren mehr beim Schließen eines Fensters)
 
