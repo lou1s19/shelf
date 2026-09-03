@@ -2846,8 +2846,18 @@ pub fn is_valid_video(path: &std::path::Path) -> bool {
 #[tauri::command]
 #[specta::specta]
 #[instrument(skip(app))]
-async fn copy_screenshot_to_clipboard(app: AppHandle, path: String) -> Result<u32, String> {
-    recording::write_screenshot_to_clipboard_stacked(&app, std::path::Path::new(&path))
+async fn copy_screenshot_to_clipboard(
+    app: AppHandle,
+    path: String,
+    stack: bool,
+) -> Result<u32, String> {
+    let path = std::path::Path::new(&path);
+    if !stack {
+        recording::write_screenshot_to_clipboard(&app, path).await?;
+        return Ok(1);
+    }
+
+    recording::write_screenshot_to_clipboard_stacked(&app, path)
         .await
         .map(|count| count as u32)
 }

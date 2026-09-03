@@ -122,7 +122,9 @@ build() {
 start_app() {
 	stop_pid_file "$APP_PID_FILE"
 	echo "==> starting the app"
-	("$BINARY" >"$APP_LOG" 2>&1 &
+	# From src-tauri, like `tauri dev` does: the app writes the TypeScript bindings to a
+	# path relative to its working directory and skips them silently from anywhere else.
+	(cd "$REPO/apps/desktop/src-tauri" && "$BINARY" >"$APP_LOG" 2>&1 &
 		echo $! >"$APP_PID_FILE")
 	sleep 2
 	if ! running "$APP_PID_FILE"; then

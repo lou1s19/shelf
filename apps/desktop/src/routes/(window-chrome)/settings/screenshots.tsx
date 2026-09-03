@@ -142,7 +142,7 @@ function ScreenshotsLibrary() {
 
 	const handleCopyImageToClipboard = (path: string) => {
 		trackEvent("screenshot_copy_clicked");
-		commands.copyScreenshotToClipboard(path);
+		commands.copyScreenshotToClipboard(path, false);
 	};
 
 	const handleImportImage = async () => {

@@ -51,6 +51,8 @@ const STACK_TOP_PADDING = 48;
 const STACK_BOTTOM_PADDING = 80;
 /** Safety net for very tall screens: nobody needs a wall of pins. */
 const MAX_VISIBLE_CARDS = 12;
+/** The shelf survives a restart, so without this it would still show months of pins. */
+const PIN_MAX_AGE_MS = 10 * 24 * 60 * 60 * 1000;
 
 /** How many cards fit on this screen without the stack running off the top edge. */
 export function maxVisibleCards(availableHeight: number): number {
@@ -84,6 +86,15 @@ export default function () {
 		{ name: "screenshots-store" },
 	);
 
+	const dropAgedPins = () => {
+		const oldest = Date.now() - PIN_MAX_AGE_MS;
+		const keep = (state: MediaEntry[]) =>
+			state.filter((entry) => (entry.createdAt ?? 0) > oldest);
+		setRecordings(keep);
+		setScreenshots(keep);
+	};
+	onMount(dropAgedPins);
+
 	const settings = generalSettingsStore.createQuery();
 
 	const screenshotAutoHideMs = () =>
@@ -98,8 +109,10 @@ export default function () {
 	const HOLD_AFTER_LEAVE_MS = 3000;
 	const MAX_HOLD_MS = 20000;
 
-	const [hoveredCopy, setHoveredCopy] = createSignal<(() => void) | null>(null);
-	const [newestCopy, setNewestCopy] = createSignal<(() => void) | null>(null);
+	type CopyCard = (stack: boolean) => void;
+
+	const [hoveredCopy, setHoveredCopy] = createSignal<CopyCard | null>(null);
+	const [newestCopy, setNewestCopy] = createSignal<CopyCard | null>(null);
 	let copyShortcutArmed = false;
 	let releaseTimer: ReturnType<typeof setTimeout> | undefined;
 	let maxHoldTimer: ReturnType<typeof setTimeout> | undefined;
@@ -130,7 +143,7 @@ export default function () {
 		setCopyShortcut(false);
 	};
 
-	const armCopyShortcut = (run?: () => void) => {
+	const armCopyShortcut = (run?: CopyCard) => {
 		if (run) setHoveredCopy(() => run);
 		if (!copyTarget()) return;
 
@@ -152,20 +165,23 @@ export default function () {
 		releaseTimer = setTimeout(releaseCopyShortcut, HOLD_AFTER_LEAVE_MS);
 	};
 
-	const runCopy = () => {
+	const runCopy = (stack: boolean) => {
 		const run = copyTarget();
 		if (!run) return;
 		releaseCopyShortcut();
-		run();
+		run(stack);
 	};
 
-	createTauriEventListener(events.onPinCopyPress, runCopy);
+	createTauriEventListener(events.onPinCopyPress, (payload) =>
+		runCopy(payload.stack),
+	);
 
 	const onWindowFocus = () => armCopyShortcut();
 	const onKeyDown = (event: KeyboardEvent) => {
-		if (event.key !== "c" || !(event.metaKey || event.ctrlKey)) return;
+		// `key` is uppercase while shift is down, so the code is what identifies the key.
+		if (event.code !== "KeyC" || !(event.metaKey || event.ctrlKey)) return;
 		event.preventDefault();
-		runCopy();
+		runCopy(event.shiftKey);
 	};
 	const onVisibilityChange = () => {
 		if (document.hidden) releaseCopyShortcut();
@@ -388,8 +404,8 @@ export default function () {
 								// How many screenshots the clipboard now holds. More than one
 								// means this copy joined the ones before it into one image.
 								const [copiedCount, setCopiedCount] = createSignal(1);
-								const copyThisCard = () =>
-									copy.mutate(undefined, {
+								const copyThisCard = (stack: boolean) =>
+									copy.mutate(stack, {
 										onSuccess: (count) => {
 											setCopiedCount(count ?? 1);
 											setCopied(true);
@@ -672,7 +688,7 @@ export default function () {
 														class="absolute right-3 bottom-3 z-20"
 														tooltipText={copy.isPending ? "Copying" : "Copy"}
 														tooltipPlacement="left"
-														onClick={copyThisCard}
+														onClick={() => copyThisCard(false)}
 													>
 														<IconLucideCopy class="size-4" />
 													</TooltipIconButton>
@@ -933,7 +949,7 @@ function createRecordingMutations(media: MediaEntry) {
 		);
 
 	const copy = createMutation(() => ({
-		mutationFn: async (): Promise<number> => {
+		mutationFn: async (stack: boolean): Promise<number> => {
 			setActionState({
 				type: "copy",
 				state: { type: "rendering", state: { type: "starting" } },
@@ -967,7 +983,10 @@ function createRecordingMutations(media: MediaEntry) {
 						type: "copy",
 						state: { type: "copying" },
 					});
-					copiedCount = await commands.copyScreenshotToClipboard(media.path);
+					copiedCount = await commands.copyScreenshotToClipboard(
+						media.path,
+						stack,
+					);
 				}
 
 				setActionState({

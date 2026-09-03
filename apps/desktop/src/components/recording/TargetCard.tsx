@@ -215,7 +215,7 @@ export default function TargetCard(props: TargetCardProps) {
 		const screenshot = screenshotTarget();
 		if (!screenshot) return;
 		try {
-			await commands.copyScreenshotToClipboard(screenshot.path);
+			await commands.copyScreenshotToClipboard(screenshot.path, false);
 			toast.success("Screenshot copied to clipboard");
 		} catch (error) {
 			console.error("Failed to copy screenshot:", error);

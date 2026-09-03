@@ -86,7 +86,8 @@ Die Dev-App speichert ihren Zustand unter
 `~/Library/Application Support/de.shelf.desktop.dev/store`, ihre Logs unter
 `~/Library/Logs/de.shelf.desktop/`. Panics landen zusätzlich in `panics.log`.
 
-Die Screenshot-Tastenkürzel im Dev-Store: `Ctrl+Shift+7` ganzer Bildschirm,
-`Ctrl+Shift+8` Bereich. Bewusst andere als in der installierten Shelf
-(`Ctrl+Shift+1` und `Ctrl+Shift+2`): laufen beide gleichzeitig, bekommt nur die
-App das Kürzel, die es zuerst registriert hat, und das ist die installierte.
+Die Screenshot-Tastenkürzel im Dev-Store: `Ctrl+Shift+1` ganzer Bildschirm,
+`Ctrl+Shift+2` Bereich. Beim Testen die installierte Shelf.app beenden: ein
+globales Kürzel gehört immer nur einer App, und die zuerst gestartete gewinnt.
+Beide gleichzeitig laufen zu lassen bringt außerdem zwei Shelf-Leisten
+übereinander in dieselbe Bildschirmecke.

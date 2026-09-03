@@ -168,8 +168,8 @@ async copyFileToPath(src: string, dst: string) : Promise<null> {
 async copyVideoToClipboard(path: string) : Promise<null> {
     return await TAURI_INVOKE("copy_video_to_clipboard", { path });
 },
-async copyScreenshotToClipboard(path: string) : Promise<number> {
-    return await TAURI_INVOKE("copy_screenshot_to_clipboard", { path });
+async copyScreenshotToClipboard(path: string, stack: boolean) : Promise<number> {
+    return await TAURI_INVOKE("copy_screenshot_to_clipboard", { path, stack });
 },
 async copyImageToClipboard(data: number[]) : Promise<null> {
     return await TAURI_INVOKE("copy_image_to_clipboard", { data });
@@ -1038,11 +1038,12 @@ export type OSPermissionStatus = "notNeeded" | "empty" | "granted" | "denied"
 export type OSPermissionsCheck = { screenRecording: OSPermissionStatus; microphone: OSPermissionStatus; camera: OSPermissionStatus; accessibility: OSPermissionStatus }
 export type OnEscapePress = null
 /**
- * Cmd+C over a pinned card. The overlay is a non-activating panel and never
- * becomes key window, so it receives no key events of its own. The shortcut is
- * therefore registered globally, but only while the overlay armed it.
+ * Cmd+C over a pinned card, or Cmd+Shift+C to add the card to what was copied
+ * before it. The overlay is a non-activating panel and never becomes key window,
+ * so it receives no key events of its own. The shortcuts are therefore registered
+ * globally, but only while the overlay armed them.
  */
-export type OnPinCopyPress = null
+export type OnPinCopyPress = { stack: boolean }
 export type PhysicalSize = { width: number; height: number }
 export type Platform = "MacOS" | "Windows" | "Linux"
 export type PostScreenshotBehaviour = "openEditor" | 

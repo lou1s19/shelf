@@ -158,11 +158,14 @@ impl HotkeysStore {
 #[derive(Serialize, Type, tauri_specta::Event, Debug, Clone)]
 pub struct OnEscapePress;
 
-/// Cmd+C over a pinned card. The overlay is a non-activating panel and never
-/// becomes key window, so it receives no key events of its own. The shortcut is
-/// therefore registered globally, but only while the overlay armed it.
+/// Cmd+C over a pinned card, or Cmd+Shift+C to add the card to what was copied
+/// before it. The overlay is a non-activating panel and never becomes key window,
+/// so it receives no key events of its own. The shortcuts are therefore registered
+/// globally, but only while the overlay armed them.
 #[derive(Serialize, Type, tauri_specta::Event, Debug, Clone)]
-pub struct OnPinCopyPress;
+pub struct OnPinCopyPress {
+    pub stack: bool,
+}
 
 #[derive(Default)]
 pub struct PinCopyShortcut(Mutex<bool>);
@@ -171,6 +174,10 @@ pub struct PinCopyShortcut(Mutex<bool>);
 /// parser picks its own modifier bit, and the handler then never matched.
 fn pin_copy_shortcut() -> Shortcut {
     Shortcut::new(Some(Modifiers::META), Code::KeyC)
+}
+
+fn pin_copy_stack_shortcut() -> Shortcut {
+    Shortcut::new(Some(Modifiers::META | Modifiers::SHIFT), Code::KeyC)
 }
 
 #[tauri::command(async)]
@@ -186,19 +193,21 @@ pub fn set_pin_copy_shortcut_active(app: AppHandle, active: bool) {
     }
 
     if active {
-        match global_shortcut.register(pin_copy_shortcut()) {
+        match global_shortcut.register_multiple([pin_copy_shortcut(), pin_copy_stack_shortcut()]) {
             Ok(()) => {
                 *registered = true;
-                debug!("Grabbed the pin copy shortcut");
+                debug!("Grabbed the pin copy shortcuts");
             }
-            Err(err) => error!("Failed to grab the pin copy shortcut: {err}"),
+            Err(err) => error!("Failed to grab the pin copy shortcuts: {err}"),
         }
     } else {
-        if let Err(err) = global_shortcut.unregister(pin_copy_shortcut()) {
-            debug!("Failed to release the pin copy shortcut: {err}");
+        if let Err(err) =
+            global_shortcut.unregister_multiple([pin_copy_shortcut(), pin_copy_stack_shortcut()])
+        {
+            debug!("Failed to release the pin copy shortcuts: {err}");
         }
         *registered = false;
-        debug!("Released the pin copy shortcut");
+        debug!("Released the pin copy shortcuts");
     }
 }
 
@@ -427,13 +436,21 @@ pub fn init(app: &AppHandle) {
 
                 // Compared whole, not by key alone: a user may bind their own
                 // shortcut whose base key is C, and that must not copy the pin.
-                if *shortcut == pin_copy_shortcut()
+                let pin_copy = if *shortcut == pin_copy_shortcut() {
+                    Some(false)
+                } else if *shortcut == pin_copy_stack_shortcut() {
+                    Some(true)
+                } else {
+                    None
+                };
+
+                if let Some(stack) = pin_copy
                     && app
                         .try_state::<PinCopyShortcut>()
                         .is_some_and(|state| *state.0.lock().unwrap_or_else(|e| e.into_inner()))
                 {
-                    debug!("Pin copy shortcut fired");
-                    OnPinCopyPress.emit(app).ok();
+                    debug!(stack, "Pin copy shortcut fired");
+                    OnPinCopyPress { stack }.emit(app).ok();
                 }
 
                 if shortcut.key == Code::Escape {
