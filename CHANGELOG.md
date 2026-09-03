@@ -10,8 +10,8 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
 - **Notarisierung fehlt noch.** `scripts/release-shelf.sh` erledigt sie, braucht
   aber einmalig ein Profil im Schlüsselbund (app-spezifisches Passwort von
   appleid.apple.com). Ohne das startet die App auf keinem fremden Mac.
-- **Das Repo ist privat.** Sobald die App weitergegeben wird, verlangt die AGPL
-  den Quelltext. Der Quellcode-Link auf der Website zeigt derzeit ins Private.
+- **Kein Intel-Build.** Nur aarch64. Ein Universal-Build braucht einen zweiten
+  Ziel-Tripel im Release-Lauf.
 - **Rust-Crates heißen weiter `cap-*`**, die npm-Pakete `@cap/*`, die
   Sidecar-Binaries `cap-cli`, `cap-exporter`, `cap-muxer`. Rein intern, aber im
   App-Paket zu finden. Eine Umbenennung ist mechanisch, aber breit.
@@ -78,6 +78,38 @@ unten gesetzt, jeweils mittig auf der Breite des breitesten, mit 12 px Abstand.
   legen ihre Shelf-Leiste in dieselbe Bildschirmecke. Zum Testen deshalb
   `scripts/install-shelf.sh` (Debug-Build in `/Applications`), nicht die Dev-App
   daneben.
+
+## 2026-09-03 (Shelf ist veroeffentlicht, unter AGPLv3)
+
+Louis wollte die App zum Download anbieten und dabei privat und Closed Source
+bleiben. Das geht bei diesem Code nicht: alles ausser den `cap-camera*`- und
+`scap-*`-Kisten ist AGPLv3, Copyright Cap Software, Inc. Ausgebaut wurde beim
+Fork Caps **Infrastruktur** (Konten, Uploads, Telemetrie, Website, Cloud), nicht
+Caps **Code**; Aufnahme-Kern, Editor und Rendering sind weiter Caps Werk. Von
+8247 Commits sind 98 von Louis. Nach der Erklaerung hat er sich fuer die
+Veroeffentlichung entschieden.
+
+- **Repo ist oeffentlich**, Tag `v0.5.9`, GitHub-Release mit `Shelf-0.5.9.dmg`
+  (113 MB) und dem Update-Paket.
+- **Signiert und notarisiert.** `spctl` meldet „accepted, Notarized Developer
+  ID", das Ticket ist angeheftet. Die App startet damit auf fremden Macs ohne
+  Warnung. Notarisierungs-Profil `shelf-notary` liegt im Schluesselbund.
+- **Nur Apple Silicon.** Der Build ist aarch64; die Website nennt das jetzt, ein
+  Intel-Mac haette die DMG geladen und den Fehler bei sich gesucht.
+- **Update-Feed** unter `/updates/latest.json` auf der Website, das Paket selbst
+  als Release-Anhang. `make-update-feed.mjs` kennt dafuer `--asset-base`.
+- **Rechtstexte gefuellt** mit den schon veroeffentlichten Angaben aus dem
+  Churchpoint-Impressum desselben Einzelunternehmens; die Website steht nicht
+  mehr auf noindex.
+- **Schluessel gesichert:** AES-256-Abbild unter
+  `~/serv/Shelf-Builds/shelf-signing-keys.dmg`, Kennwort im Schluesselbund.
+- **Zwei Fehler aus dem ersten Release-Lauf behoben:** Tauri wollte das
+  Update-Paket vor Signatur und Notarisierung packen, und `codesign` scheiterte
+  an den Zusatzattributen, die iCloud auf dem Desktop laufend anhaengt. Signiert
+  wird jetzt unter `TMPDIR`.
+- **Historie geprueft:** die alte `apps/desktop/src-tauri/.env` stammt von 2023
+  von Caps Gruender und liegt seit zwei Jahren oeffentlich in `CapSoftware/Cap`.
+  In Louis' 98 Commits keine Schluessel.
 
 ## 2026-09-03 (Update-Zwang und Bezahlschranke, beide noch inaktiv)
 
