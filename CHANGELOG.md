@@ -42,10 +42,18 @@ mittig auf der Breite des breitesten, mit 12 px Abstand dazwischen.
 - Die Shelf-Karte zeigt beim Häkchen „N images", sobald mehr als eins drauf ist.
 - Das automatische Kopieren nach einem Screenshot (`ClipboardOnly`) stapelt
   bewusst nicht: dort ist jeder Screenshot eine eigene Absicht.
+- Eine Serie endet nach acht Bildern oder 20000 Pixeln Höhe. Danach fängt der
+  nächste Kopiervorgang wieder bei einem Bild an. Jeder Schritt setzt nur das
+  Bild des vorherigen Schritts mit dem einen neuen zusammen, sonst würde die
+  Arbeit quadratisch wachsen. Bauen, Schreiben und Bestätigen laufen unter einer
+  Sperre, damit zwei Kopiervorgänge sich nicht überholen.
 - Neu: `scripts/dev-shelf.sh` (start/reload/stop/status) startet die Debug-App
   neben der installierten Shelf.app, damit Änderungen ohne kompletten
-  Neubau-und-Installieren-Lauf ausprobiert werden können.
-- **Noch nicht gebaut und nicht getestet**, auf Wunsch von Louis erst eingebaut.
+  Neubau-und-Installieren-Lauf ausprobiert werden können. Das Skript richtet
+  fehlende Teile selbst ein: node_modules, native ffmpeg-/onnxruntime-Deps
+  (`node scripts/setup.js`) und die Sidecar-Binaries.
+- Gebaut und Typecheck grün, Codex-Gegencheck eingearbeitet. Das Verhalten
+  selbst hat Louis in der Dev-App zu testen.
 
 ## 2026-08-28 (Kein Einfrieren mehr beim Schließen eines Fensters)
 
