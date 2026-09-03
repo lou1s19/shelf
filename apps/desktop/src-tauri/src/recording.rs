@@ -2915,9 +2915,10 @@ pub(crate) fn prune_shared_files(dir: &Path) {
 /// Copies a single screenshot, ending any stacking run: whoever calls this wants exactly the
 /// one picture on the clipboard.
 pub async fn write_screenshot_to_clipboard(app: &AppHandle, path: &Path) -> Result<(), String> {
-    crate::clipboard_stack::copy_alone(path, |file| async move {
-        put_on_clipboard(app, &file).await
-    })
+    crate::clipboard_stack::copy_alone(
+        path,
+        |file| async move { put_on_clipboard(app, &file).await },
+    )
     .await
 }
 
@@ -2927,9 +2928,10 @@ pub async fn write_screenshot_to_clipboard_stacked(
     app: &AppHandle,
     path: &Path,
 ) -> Result<usize, String> {
-    crate::clipboard_stack::copy_stacked(path, |file| async move {
-        put_on_clipboard(app, &file).await
-    })
+    crate::clipboard_stack::copy_stacked(
+        path,
+        |file| async move { put_on_clipboard(app, &file).await },
+    )
     .await
 }
 
