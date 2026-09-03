@@ -15,7 +15,7 @@ use std::{
 };
 
 use image::{Rgba, RgbaImage};
-use tracing::warn;
+use tracing::{debug, warn};
 
 const STACK_WINDOW: Duration = Duration::from_secs(10);
 /// Transparent breathing room between two shots, so the seam is visible when both have the
@@ -34,10 +34,12 @@ struct Run {
     stacked: Option<PathBuf>,
     count: usize,
     last_copy: Instant,
-    /// What the pasteboard counted right after this app's own write. Anything else writing to
-    /// the clipboard moves that number on and ends the run. Always 0 off macOS, where the
-    /// window alone has to do.
-    change_count: i64,
+    /// The plain text the clipboard carried right after this app's own write, which is the
+    /// path of the image. Anything else copied replaces it and ends the run. Deliberately not
+    /// the pasteboard's change counter: macOS bumps that on its own when it re-announces the
+    /// clipboard for Handoff, which would end a run nobody touched. `None` off macOS, where
+    /// the window alone has to do.
+    marker: Option<String>,
 }
 
 static RUN: Mutex<Option<Run>> = Mutex::new(None);
@@ -102,7 +104,7 @@ fn extend(path: &Path) -> StackedCopy {
             stacked: None,
             count: 1,
             last_copy: Instant::now(),
-            change_count: 0,
+            marker: None,
         });
         StackedCopy {
             path: path.to_path_buf(),
@@ -110,7 +112,13 @@ fn extend(path: &Path) -> StackedCopy {
         }
     };
 
-    let Some(mut run) = guard.take().filter(continues) else {
+    let Some(mut run) = guard.take().and_then(|run| match interrupted(&run) {
+        None => Some(run),
+        Some(reason) => {
+            debug!(reason, count = run.count, "Clipboard stack starts over");
+            None
+        }
+    }) else {
         return started_fresh(&mut guard);
     };
 
@@ -134,6 +142,7 @@ fn extend(path: &Path) -> StackedCopy {
             run.last = path.to_path_buf();
             run.stacked = Some(stacked.clone());
             run.count += 1;
+            debug!(count = run.count, "Clipboard stack grown");
             let copy = StackedCopy {
                 path: stacked,
                 count: run.count,
@@ -155,7 +164,8 @@ fn confirm() {
     let mut guard = lock();
     if let Some(run) = guard.as_mut() {
         run.last_copy = Instant::now();
-        run.change_count = clipboard_change_count();
+        run.marker = clipboard_marker();
+        debug!(count = run.count, marker = ?run.marker, "Clipboard is ours");
     }
 }
 
@@ -168,27 +178,48 @@ fn lock() -> std::sync::MutexGuard<'static, Option<Run>> {
     RUN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn continues(run: &Run) -> bool {
-    run.last_copy.elapsed() < STACK_WINDOW && run.change_count == clipboard_change_count()
+/// Why the run cannot go on, or `None` while it can.
+fn interrupted(run: &Run) -> Option<&'static str> {
+    let idle = run.last_copy.elapsed();
+    if idle >= STACK_WINDOW {
+        return Some("last copy too long ago");
+    }
+
+    let now = clipboard_marker();
+    if run.marker != now {
+        debug!(ours = ?run.marker, ?now, "Clipboard written elsewhere");
+        return Some("clipboard written elsewhere");
+    }
+
+    None
 }
 
 #[cfg(target_os = "macos")]
-fn clipboard_change_count() -> i64 {
-    use cocoa::appkit::NSPasteboard;
+fn clipboard_marker() -> Option<String> {
+    use cocoa::appkit::{NSPasteboard, NSPasteboardTypeString};
     use cocoa::base::{id, nil};
+    use cocoa::foundation::NSString;
 
     unsafe {
         let pasteboard: id = NSPasteboard::generalPasteboard(nil);
         if pasteboard == nil {
-            return 0;
+            return None;
         }
-        pasteboard.changeCount() as i64
+        let value: id = pasteboard.stringForType(NSPasteboardTypeString);
+        if value == nil {
+            return None;
+        }
+        Some(
+            std::ffi::CStr::from_ptr(value.UTF8String())
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 
 #[cfg(not(target_os = "macos"))]
-fn clipboard_change_count() -> i64 {
-    0
+fn clipboard_marker() -> Option<String> {
+    None
 }
 
 /// Draws `addition` under `base`, both centred on the width of the wider one. `base` is the
