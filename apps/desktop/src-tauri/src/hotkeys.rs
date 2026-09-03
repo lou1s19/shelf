@@ -192,23 +192,20 @@ pub fn set_pin_copy_shortcut_active(app: AppHandle, active: bool) {
         return;
     }
 
-    if active {
-        match global_shortcut.register_multiple([pin_copy_shortcut(), pin_copy_stack_shortcut()]) {
-            Ok(()) => {
-                *registered = true;
-                debug!("Grabbed the pin copy shortcuts");
+    // One at a time, not `register_multiple`: that fails as a whole, so a shortcut some
+    // other app already holds would cost the plain copy its shortcut too.
+    for shortcut in [pin_copy_shortcut(), pin_copy_stack_shortcut()] {
+        if active {
+            match global_shortcut.register(shortcut) {
+                Ok(()) => debug!(%shortcut, "Grabbed a pin copy shortcut"),
+                Err(err) => error!(%shortcut, "Failed to grab a pin copy shortcut: {err}"),
             }
-            Err(err) => error!("Failed to grab the pin copy shortcuts: {err}"),
+        } else if let Err(err) = global_shortcut.unregister(shortcut) {
+            debug!(%shortcut, "Failed to release a pin copy shortcut: {err}");
         }
-    } else {
-        if let Err(err) =
-            global_shortcut.unregister_multiple([pin_copy_shortcut(), pin_copy_stack_shortcut()])
-        {
-            debug!("Failed to release the pin copy shortcuts: {err}");
-        }
-        *registered = false;
-        debug!("Released the pin copy shortcuts");
     }
+
+    *registered = active;
 }
 
 pub type HotkeysState = Mutex<HotkeysStore>;
