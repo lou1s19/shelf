@@ -2915,9 +2915,10 @@ pub(crate) fn prune_shared_files(dir: &Path) {
 /// Copies a single screenshot, ending any stacking run: whoever calls this wants exactly the
 /// one picture on the clipboard.
 pub async fn write_screenshot_to_clipboard(app: &AppHandle, path: &Path) -> Result<(), String> {
-    let result = put_on_clipboard(app, path).await;
-    crate::clipboard_stack::reset();
-    result
+    crate::clipboard_stack::copy_alone(path, |file| async move {
+        put_on_clipboard(app, &file).await
+    })
+    .await
 }
 
 /// Copies a screenshot and keeps the ones copied just before it, stacked into one image.
@@ -2926,10 +2927,10 @@ pub async fn write_screenshot_to_clipboard_stacked(
     app: &AppHandle,
     path: &Path,
 ) -> Result<usize, String> {
-    let copy = crate::clipboard_stack::extend(path);
-    put_on_clipboard(app, &copy.path).await?;
-    crate::clipboard_stack::confirm();
-    Ok(copy.count)
+    crate::clipboard_stack::copy_stacked(path, |file| async move {
+        put_on_clipboard(app, &file).await
+    })
+    .await
 }
 
 /// Puts an image on the clipboard in several shapes at once: the image data, so image

@@ -8,6 +8,7 @@
 //! the clipboard in the meantime.
 
 use std::{
+    future::Future,
     path::{Path, PathBuf},
     sync::Mutex,
     time::{Duration, Instant},
@@ -20,10 +21,18 @@ const STACK_WINDOW: Duration = Duration::from_secs(10);
 /// Transparent breathing room between two shots, so the seam is visible when both have the
 /// same background colour.
 const STACK_GAP: u32 = 12;
+/// Every screenshot added grows one image that is decoded and encoded again on the next copy.
+/// Past these limits that costs seconds and hundreds of megabytes, so the run ends and the
+/// next copy starts a fresh one.
+const MAX_STACK: usize = 8;
+const MAX_STACK_HEIGHT: u32 = 20_000;
 
 struct Run {
-    paths: Vec<PathBuf>,
+    /// The screenshot added last, to notice the same one being copied twice.
+    last: PathBuf,
+    /// The image built from all of them, once there is more than one.
     stacked: Option<PathBuf>,
+    count: usize,
     last_copy: Instant,
     /// What the pasteboard counted right after this app's own write. Anything else writing to
     /// the clipboard moves that number on and ends the run. Always 0 off macOS, where the
@@ -32,68 +41,117 @@ struct Run {
 }
 
 static RUN: Mutex<Option<Run>> = Mutex::new(None);
+/// One copy at a time. Building the image, writing it and noting the clipboard as ours belong
+/// together: two copies running side by side could otherwise land on the pasteboard in the
+/// wrong order and leave the run describing an image that is no longer on it.
+static COPY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub struct StackedCopy {
-    /// The file to hand to the clipboard: the screenshot itself for the first copy of a run,
-    /// the stacked image after that.
-    pub path: PathBuf,
-    /// How many screenshots that file holds.
-    pub count: usize,
+/// Copies a screenshot together with the ones copied just before it, and hands the file to
+/// `write`. Returns how many screenshots ended up on the clipboard.
+pub async fn copy_stacked<F, Fut>(path: &Path, write: F) -> Result<usize, String>
+where
+    F: FnOnce(PathBuf) -> Fut,
+    Fut: Future<Output = Result<(), String>>,
+{
+    let _guard = COPY_LOCK.lock().await;
+
+    // Reading, decoding and encoding whole screenshots takes long enough to stall the runtime
+    // thread it runs on, so it happens off to the side.
+    let owned = path.to_path_buf();
+    let copy = tokio::task::spawn_blocking(move || extend(&owned))
+        .await
+        .map_err(|e| format!("Failed to stack the screenshots: {e}"))?;
+
+    match write(copy.path).await {
+        Ok(()) => {
+            confirm();
+            Ok(copy.count)
+        }
+        Err(e) => {
+            // Nothing reached the clipboard, so the screenshot must not count as copied.
+            reset();
+            Err(e)
+        }
+    }
 }
 
-/// Adds a screenshot to the current run, or starts a new one, and returns what belongs on the
-/// clipboard now. Call [`confirm`] once the write actually happened.
-pub fn extend(path: &Path) -> StackedCopy {
+/// Copies a single screenshot through `write` and ends any run: whoever calls this wants
+/// exactly the one picture on the clipboard.
+pub async fn copy_alone<F, Fut>(path: &Path, write: F) -> Result<(), String>
+where
+    F: FnOnce(PathBuf) -> Fut,
+    Fut: Future<Output = Result<(), String>>,
+{
+    let _guard = COPY_LOCK.lock().await;
+    let result = write(path.to_path_buf()).await;
+    reset();
+    result
+}
+
+struct StackedCopy {
+    path: PathBuf,
+    count: usize,
+}
+
+fn extend(path: &Path) -> StackedCopy {
     let mut guard = lock();
 
-    let mut run = match guard.take() {
-        Some(run) if continues(&run) => run,
-        _ => Run {
-            paths: Vec::new(),
+    let started_fresh = |guard: &mut Option<Run>| {
+        *guard = Some(Run {
+            last: path.to_path_buf(),
             stacked: None,
+            count: 1,
             last_copy: Instant::now(),
             change_count: 0,
-        },
+        });
+        StackedCopy {
+            path: path.to_path_buf(),
+            count: 1,
+        }
+    };
+
+    let Some(mut run) = guard.take().filter(continues) else {
+        return started_fresh(&mut guard);
     };
 
     // Pressing the shortcut twice on the same card is a retry, not a second picture.
-    if run.paths.last().map(PathBuf::as_path) == Some(path) {
+    if run.last == path {
         let copy = StackedCopy {
-            path: run.stacked.clone().unwrap_or_else(|| path.to_path_buf()),
-            count: run.paths.len(),
+            path: run.stacked.clone().unwrap_or_else(|| run.last.clone()),
+            count: run.count,
         };
         *guard = Some(run);
         return copy;
     }
 
-    run.paths.push(path.to_path_buf());
-
-    if run.paths.len() > 1 {
-        match stack(&run.paths) {
-            Ok(stacked) => run.stacked = Some(stacked),
-            Err(e) => {
-                // A picture nobody can build is no reason to copy nothing: fall back to the
-                // screenshot that was just asked for and start over from there.
-                warn!("Failed to stack the copied screenshots: {e}");
-                run.paths = vec![path.to_path_buf()];
-                run.stacked = None;
-            }
-        }
+    if run.count >= MAX_STACK {
+        return started_fresh(&mut guard);
     }
 
-    let copy = StackedCopy {
-        path: run
-            .stacked
-            .clone()
-            .unwrap_or_else(|| run.paths[0].clone()),
-        count: run.paths.len(),
-    };
-    *guard = Some(run);
-    copy
+    let base = run.stacked.clone().unwrap_or_else(|| run.last.clone());
+    match stack(&base, path, run.count + 1) {
+        Ok(stacked) => {
+            run.last = path.to_path_buf();
+            run.stacked = Some(stacked.clone());
+            run.count += 1;
+            let copy = StackedCopy {
+                path: stacked,
+                count: run.count,
+            };
+            *guard = Some(run);
+            copy
+        }
+        Err(e) => {
+            // An image nobody can build is no reason to copy nothing: fall back to the
+            // screenshot that was just asked for and start over from there.
+            warn!("Failed to stack the copied screenshots: {e}");
+            started_fresh(&mut guard)
+        }
+    }
 }
 
 /// Marks the clipboard as this app's own, so the next copy may extend the run.
-pub fn confirm() {
+fn confirm() {
     let mut guard = lock();
     if let Some(run) = guard.as_mut() {
         run.last_copy = Instant::now();
@@ -101,8 +159,7 @@ pub fn confirm() {
     }
 }
 
-/// Ends the run. Used by everything that writes to the clipboard without stacking.
-pub fn reset() {
+fn reset() {
     *lock() = None;
 }
 
@@ -134,37 +191,41 @@ fn clipboard_change_count() -> i64 {
     0
 }
 
-/// Draws the screenshots onto one canvas, top to bottom, each centred on the widest one.
-fn stack(paths: &[PathBuf]) -> Result<PathBuf, String> {
-    let images = paths
-        .iter()
-        .map(|path| {
-            image::open(path)
-                .map(|image| image.to_rgba8())
-                .map_err(|e| format!("Failed to read {}: {e}", path.display()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+/// Draws `addition` under `base`, both centred on the width of the wider one. `base` is the
+/// image built by the copy before, so every copy handles two images, not the whole run.
+fn stack(base: &Path, addition: &Path, count: usize) -> Result<PathBuf, String> {
+    let read = |path: &Path| {
+        image::open(path)
+            .map(|image| image.to_rgba8())
+            .map_err(|e| format!("Failed to read {}: {e}", path.display()))
+    };
 
-    let width = images.iter().map(|image| image.width()).max().unwrap_or(0);
-    let height = images
-        .iter()
-        .map(|image| image.height())
-        .sum::<u32>()
-        .saturating_add(STACK_GAP * (images.len() as u32 - 1));
+    let top = read(base)?;
+    let bottom = read(addition)?;
+
+    let width = top.width().max(bottom.width());
+    let height = top
+        .height()
+        .saturating_add(bottom.height())
+        .saturating_add(STACK_GAP);
 
     if width == 0 || height == 0 {
         return Err("Nothing to stack".to_string());
     }
-
-    let mut canvas = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 0]));
-    let mut y = 0i64;
-    for image in &images {
-        let x = ((width - image.width()) / 2) as i64;
-        image::imageops::replace(&mut canvas, image, x, y);
-        y += image.height() as i64 + STACK_GAP as i64;
+    if height > MAX_STACK_HEIGHT {
+        return Err(format!("Stack would be {height} pixels tall"));
     }
 
-    let target = stacked_file_path(images.len())?;
+    let mut canvas = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 0]));
+    image::imageops::replace(&mut canvas, &top, ((width - top.width()) / 2) as i64, 0);
+    image::imageops::replace(
+        &mut canvas,
+        &bottom,
+        ((width - bottom.width()) / 2) as i64,
+        (top.height() + STACK_GAP) as i64,
+    );
+
+    let target = stacked_file_path(count)?;
     canvas
         .save(&target)
         .map_err(|e| format!("Failed to write the stacked image: {e}"))?;
