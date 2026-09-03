@@ -110,6 +110,18 @@ Veroeffentlichung entschieden.
 - **Historie geprueft:** die alte `apps/desktop/src-tauri/.env` stammt von 2023
   von Caps Gruender und liegt seit zwei Jahren oeffentlich in `CapSoftware/Cap`.
   In Louis' 98 Commits keine Schluessel.
+- **Fremdtest gemacht:** die DMG von der Website geladen, Quarantaene-Flag wie
+  nach einem Browser-Download gesetzt, Gatekeeper akzeptiert Abbild und App,
+  Ticket angeheftet, Version 0.5.9, arm64.
+- **Update-Weg bewiesen, nicht nur plausibel:** die Signatur in `latest.json`
+  verifiziert kryptografisch gegen den Schluessel im ausgelieferten Build und
+  gegen die echten Bytes des Pakets im GitHub-Release. Prueft ab jetzt
+  `scripts/verify-update-feed.mjs`, fest im Release-Lauf.
+- **Intel bewusst nicht gebaut.** Die Bibliotheken gaebe es, aber ein
+  Universal-Build verdoppelt Groesse und Bauzeit jeder Version dauerhaft, und
+  die Website nennt die Einschraenkung jetzt. Rueckholbar, sobald sich jemand
+  meldet: `rustup target add x86_64-apple-darwin` ist schon da, es fehlen der
+  zweite native-deps-Baum und lipo fuer Framework und Sidecars.
 
 ## 2026-09-03 (Update-Zwang und Bezahlschranke, beide noch inaktiv)
 
