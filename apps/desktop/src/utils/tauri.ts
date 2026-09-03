@@ -478,6 +478,18 @@ async updatesDownloadAndInstall() : Promise<null> {
 },
 async updatesChannelChanged() : Promise<null> {
     return await TAURI_INVOKE("updates_channel_changed");
+},
+async licensingStatus() : Promise<LicensingStatus> {
+    return await TAURI_INVOKE("licensing_status");
+},
+async licensingActivate(key: string) : Promise<LicensingStatus> {
+    return await TAURI_INVOKE("licensing_activate", { key });
+},
+async licensingDeactivate() : Promise<LicensingStatus> {
+    return await TAURI_INVOKE("licensing_deactivate");
+},
+async licensingRefresh() : Promise<LicensingStatus> {
+    return await TAURI_INVOKE("licensing_refresh");
 }
 }
 
@@ -492,6 +504,7 @@ downloadProgress: DownloadProgress,
 editorRecordingAdded: EditorRecordingAdded,
 editorStateChanged: EditorStateChanged,
 frameLayoutEvent: FrameLayoutEvent,
+licensingChanged: LicensingChanged,
 newNotification: NewNotification,
 newScreenshotAdded: NewScreenshotAdded,
 newStudioRecordingAdded: NewStudioRecordingAdded,
@@ -525,6 +538,7 @@ downloadProgress: "download-progress",
 editorRecordingAdded: "editor-recording-added",
 editorStateChanged: "editor-state-changed",
 frameLayoutEvent: "frame-layout-event",
+licensingChanged: "licensing-changed",
 newNotification: "new-notification",
 newScreenshotAdded: "new-screenshot-added",
 newStudioRecordingAdded: "new-studio-recording-added",
@@ -999,6 +1013,17 @@ export type KeyPressDisplay = { key: string; timeOffset: number }
 export type KeyboardData = { settings: KeyboardSettings }
 export type KeyboardSettings = { enabled: boolean; font: string; size: number; color: string; backgroundColor: string; backgroundOpacity: number; position: string; fontWeight: number; fadeDuration: number; lingerDuration: number; groupingThresholdMs: number; showModifiers: boolean; showSpecialKeys: boolean; uppercase: boolean }
 export type KeyboardTrackSegment = { id: string; start: number; end: number; displayText: string; keys?: KeyPressDisplay[]; fadeDurationOverride?: number | null; positionOverride?: string | null; colorOverride?: string | null; backgroundColorOverride?: string | null; fontSizeOverride?: number | null; uppercaseOverride?: boolean | null }
+export type LicensingChanged = LicensingStatus
+export type LicensingStatus = { tier: string; licensedTo: string | null; licenseId: string | null; licenseExpires: number | null; 
+/**
+ * Feature keys this copy cannot reach right now. Empty in a free build.
+ */
+lockedFeatures: string[]; update: UpdateState; currentVersion: string; buyUrl: string | null; downloadUrl: string | null; message: string | null; lastChecked: number | null; 
+/**
+ * False when no policy URL is configured, so Settings can say so instead
+ * of showing a check that never runs.
+ */
+checksEnabled: boolean }
 export type LogicalBounds = { position: LogicalPosition; size: LogicalSize }
 export type LogicalPosition = { x: number; y: number }
 export type LogicalSize = { width: number; height: number }
@@ -1149,7 +1174,7 @@ export type SerializedScreenshotEditorInstance = { framesSocketUrl: string; path
 export type SetCaptureAreaPending = boolean
 export type ShadowConfiguration = { size: number; opacity: number; blur: number }
 export type SharingMeta = { id: string; link: string; content_hash?: string | null }
-export type ShowCapWindow = { Settings: { page: string | null } } | { Editor: { project_path: string } } | "RecordingsOverlay" | { WindowCaptureOccluder: { screen_id: DisplayId } } | { TargetSelectOverlay: { display_id: DisplayId; target_mode: RecordingTargetMode | null } } | { CaptureArea: { screen_id: DisplayId } } | { Camera: { centered: boolean } } | { InProgressRecording: { countdown: number | null; capture_target?: ScreenCaptureTarget | null } } | "ModeSelect" | "Teleprompter" | { TextPin: { text: string } } | { ScreenshotEditor: { path: string } } | "Onboarding"
+export type ShowCapWindow = { Settings: { page: string | null } } | { Editor: { project_path: string } } | "RecordingsOverlay" | { WindowCaptureOccluder: { screen_id: DisplayId } } | { TargetSelectOverlay: { display_id: DisplayId; target_mode: RecordingTargetMode | null } } | { CaptureArea: { screen_id: DisplayId } } | { Camera: { centered: boolean } } | { InProgressRecording: { countdown: number | null; capture_target?: ScreenCaptureTarget | null } } | "ModeSelect" | "Teleprompter" | { TextPin: { text: string } } | { ScreenshotEditor: { path: string } } | "Onboarding" | "UpdateRequired"
 export type SingleSegment = { display: VideoMeta; camera?: VideoMeta | null; audio?: AudioMeta | null; cursor?: string | null }
 export type SplitLayout = { screenZoom: number; screenPosition: XY<number>; cameraZoom: number; cameraPosition: XY<number> }
 export type StartRecordingInputs = { capture_target: ScreenCaptureTarget; capture_system_audio?: boolean; mode: RecordingMode }
@@ -1212,6 +1237,17 @@ export type UpdateChannel = "stable" | "nightly"
 export type UpdateCheckResult = { version: string; notes: string | null; channel: UpdateChannel }
 export type UpdateDownloadProgress = { downloaded: number; total: number | null }
 export type UpdateReady = { version: string; installed: boolean }
+export type UpdateState = { type: "ok" } | 
+/**
+ * Below the floor, still inside the grace window. Seconds, as f64: specta
+ * refuses i64 because JavaScript would need a BigInt for it, and a unix
+ * timestamp is nowhere near the point where f64 loses whole seconds.
+ */
+{ type: "updateSoon"; minimum: string; deadline: number } | 
+/**
+ * Below the floor and out of grace. Everything is refused.
+ */
+{ type: "updateRequired"; minimum: string }
 export type UploadMeta = { state: "MultipartUpload"; video_id: string; file_path: string; pre_created_video: VideoUploadInfo; recording_dir: string } | { state: "SinglePartUpload"; video_id: string; recording_dir: string; file_path: string; screenshot_path: string } | { state: "SegmentUpload"; video_id: string; pre_created_video: VideoUploadInfo; recording_dir: string } | { state: "Failed"; error: string } | { state: "Complete" }
 export type Video = { duration: number; width: number; height: number; fps: number; start_time: number }
 export type VideoImportProgress = { project_path: string; stage: ImportStage; progress: number; message: string }
