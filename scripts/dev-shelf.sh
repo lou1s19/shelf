@@ -119,13 +119,24 @@ build() {
 	(cd "$REPO" && cargo build --no-default-features -p cap-desktop)
 }
 
-start_app() {
+# Tauri only allows one instance, so a leftover app makes the new one exit at once,
+# quietly. Anything still running from this binary goes first.
+stop_app() {
 	stop_pid_file "$APP_PID_FILE"
+	pkill -f "^$BINARY$" 2>/dev/null || true
+}
+
+start_app() {
+	stop_app
 	echo "==> starting the app"
 	# From src-tauri, like `tauri dev` does: the app writes the TypeScript bindings to a
 	# path relative to its working directory and skips them silently from anywhere else.
-	(cd "$REPO/apps/desktop/src-tauri" && "$BINARY" >"$APP_LOG" 2>&1 &
-		echo $! >"$APP_PID_FILE")
+	# `cd` in a subshell of its own, so the pid written is the app's and not a wrapper's.
+	(
+		cd "$REPO/apps/desktop/src-tauri"
+		"$BINARY" >"$APP_LOG" 2>&1 &
+		echo $! >"$APP_PID_FILE"
+	)
 	sleep 2
 	if ! running "$APP_PID_FILE"; then
 		echo "==> the app quit right away, see $APP_LOG" >&2
@@ -149,7 +160,7 @@ case "${1:-start}" in
 		start_app
 		;;
 	stop)
-		stop_pid_file "$APP_PID_FILE"
+		stop_app
 		stop_pid_file "$WEB_PID_FILE"
 		echo "==> stopped"
 		;;
