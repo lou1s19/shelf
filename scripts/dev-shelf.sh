@@ -28,38 +28,87 @@ BINARY="$REPO/target/debug/cap-desktop"
 export PATH="/opt/homebrew/opt/rustup/bin:$PATH"
 mkdir -p "$STATE_DIR"
 
+# A pid file holds one pid per line: the web server is started through pnpm, which keeps
+# the actual server as a child, and killing only one of the two leaves the port taken.
 running() {
 	local pid_file="$1"
-	[ -f "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null
+	[ -f "$pid_file" ] || return 1
+	while read -r pid; do
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 0
+	done <"$pid_file"
+	return 1
 }
 
 stop_pid_file() {
 	local pid_file="$1"
-	if running "$pid_file"; then
-		kill "$(cat "$pid_file")" 2>/dev/null || true
-		# The web server spawns children that keep the port; give them a moment to go.
+	if [ -f "$pid_file" ]; then
+		while read -r pid; do
+			[ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+		done <"$pid_file"
 		sleep 1
 	fi
 	rm -f "$pid_file"
 }
 
+port_owner() {
+	lsof -ti "tcp:$WEB_PORT" 2>/dev/null | head -1
+}
+
 start_web() {
-	if running "$WEB_PID_FILE" || lsof -ti "tcp:$WEB_PORT" >/dev/null 2>&1; then
+	local owner
+	owner="$(port_owner)"
+	if [ -n "$owner" ]; then
+		# Started earlier, possibly outside this script. Take it over, or `stop` and
+		# `status` would talk about a server they do not know.
+		if ! running "$WEB_PID_FILE"; then echo "$owner" >"$WEB_PID_FILE"; fi
 		echo "==> web server already up on port $WEB_PORT"
 		return
 	fi
+
 	echo "==> starting the web server on port $WEB_PORT"
 	(cd "$REPO" && pnpm --dir apps/desktop localdev >"$WEB_LOG" 2>&1 &
 		echo $! >"$WEB_PID_FILE")
 	# Tauri loads the page on launch, so the app must not start before it answers.
 	for _ in $(seq 1 60); do
 		if curl -sf "http://localhost:$WEB_PORT" >/dev/null 2>&1; then
+			owner="$(port_owner)"
+			if [ -n "$owner" ] && ! grep -qx "$owner" "$WEB_PID_FILE"; then
+				echo "$owner" >>"$WEB_PID_FILE"
+			fi
 			return
 		fi
 		sleep 1
 	done
 	echo "==> the web server did not answer, see $WEB_LOG" >&2
 	exit 1
+}
+
+# A fresh clone has none of this, and each piece fails deep inside a later step:
+# without node_modules the web server has no vinxi, without the native deps the
+# ffmpeg crates look for a system ffmpeg that is not there, and without the
+# sidecars the Tauri build script stops on a missing resource.
+prepare() {
+	# Cheap and lockfile driven, so it runs every time and picks up a changed lockfile.
+	# The other two are minutes of download and compile and are checked by existence only:
+	# they change with the ffmpeg version or the sidecar sources, which is rare enough to
+	# delete `target/native-deps` or `src-tauri/binaries` by hand for.
+	echo "==> checking node packages"
+	(cd "$REPO" && pnpm install)
+
+	if [ ! -f "$REPO/.cargo/config.toml" ] || [ ! -d "$REPO/target/native-deps" ]; then
+		echo "==> fetching the native dependencies (ffmpeg, onnxruntime)"
+		(cd "$REPO" && node scripts/setup.js)
+	fi
+
+	local triple
+	triple="$(rustc -vV | sed -n 's|host: ||p')"
+	for sidecar in cap-muxer cap-cli cap-exporter; do
+		if [ ! -f "$REPO/apps/desktop/src-tauri/binaries/$sidecar-$triple" ]; then
+			echo "==> building the sidecars (cap-muxer, cap-cli, cap-exporter), this takes a while"
+			bash "$REPO/scripts/build-desktop-binaries.sh"
+			break
+		fi
+	done
 }
 
 build() {
@@ -83,11 +132,13 @@ start_app() {
 
 case "${1:-start}" in
 	start)
+		prepare
 		start_web
 		build
 		start_app
 		;;
 	reload)
+		prepare
 		start_web
 		build
 		start_app
@@ -98,8 +149,8 @@ case "${1:-start}" in
 		echo "==> stopped"
 		;;
 	status)
-		running "$APP_PID_FILE" && echo "app:        running ($(cat "$APP_PID_FILE"))" || echo "app:        stopped"
-		running "$WEB_PID_FILE" && echo "web server: running ($(cat "$WEB_PID_FILE"))" || echo "web server: stopped"
+		running "$APP_PID_FILE" && echo "app:        running ($(tr '\n' ' ' <"$APP_PID_FILE"))" || echo "app:        stopped"
+		running "$WEB_PID_FILE" && echo "web server: running ($(tr '\n' ' ' <"$WEB_PID_FILE"))" || echo "web server: stopped"
 		echo "app log:    $APP_LOG"
 		echo "web log:    $WEB_LOG"
 		;;
