@@ -26,20 +26,29 @@ Vorschau-Fenster beim Text-Kürzel, eigener Update-Weg.
 
 ## 2026-09-03 (Mehrere Bilder untereinander in die Zwischenablage)
 
-Louis: mehrere Shelf-Bilder nacheinander kopieren soll sie untereinander in eine
-Zwischenablage legen. Kopiert man ein zweites Bild direkt nach dem ersten, liegt
-jetzt ein Bild aus beiden auf der Zwischenablage, von oben nach unten, jeweils
-mittig auf der Breite des breitesten, mit 12 px Abstand dazwischen.
+Louis: mehrere Shelf-Bilder sollen untereinander in einer Zwischenablage landen.
+`Cmd+C` kopiert ein Bild und beginnt damit eine Serie, `Cmd+Shift+C` auf der
+nächsten Karte hängt sie darunter. Das Ergebnis ist EIN Bild, von oben nach
+unten gesetzt, jeweils mittig auf der Breite des breitesten, mit 12 px Abstand.
 
-- Neues Modul `apps/desktop/src-tauri/src/clipboard_stack.rs`. Eine Serie läuft
-  weiter, solange die Zwischenablage noch das hält, was die App zuletzt
-  geschrieben hat (auf macOS über `NSPasteboard changeCount`), und der letzte
-  Kopiervorgang keine 10 Sekunden her ist. Sonst fängt sie von vorne an.
-- `write_screenshot_to_clipboard` kopiert weiter genau ein Bild und beendet eine
-  laufende Serie. Neu daneben: `write_screenshot_to_clipboard_stacked`, das die
-  Serie fortsetzt und die Anzahl zurückgibt. Der Tauri-Befehl
-  `copy_screenshot_to_clipboard` gibt diese Anzahl jetzt zurück.
+- Neues Modul `apps/desktop/src-tauri/src/clipboard_stack.rs`. Eine Serie lebt,
+  solange die Zwischenablage noch genau das hält, was die App zuletzt
+  geschrieben hat. Erkannt wird das am Textinhalt (dem Bildpfad), **nicht** am
+  `changeCount` des Pasteboards: den zählt macOS auch von sich aus hoch, etwa
+  beim Anmelden der Zwischenablage für Handoff, und damit riss die Serie sofort.
+  Ohne lesbare Zwischenablage (nicht-macOS) gilt ersatzweise ein 10-Sekunden-Fenster.
+- Erste Fassung stapelte jedes Kopieren direkt nach dem vorherigen, ohne
+  Zusatztaste. In der Praxis hat das ungewollt angehängt, sobald man zweimal
+  hintereinander kopierte. Deshalb die Zusatztaste.
+- `copy_screenshot_to_clipboard` nimmt jetzt ein `stack`-Flag und gibt die Anzahl
+  zurück. Ohne Flag beginnt der Kopiervorgang eine neue Serie, er beendet sie
+  nicht: sonst hat das erste `Cmd+C` weggeräumt, woran `Cmd+Shift+C` anknüpfen sollte.
+- Beide Kürzel werden einzeln global registriert. `register_multiple` schlägt als
+  Ganzes fehl, ein von einer anderen App belegtes Kürzel hätte also auch das
+  normale Kopieren lahmgelegt.
 - Die Shelf-Karte zeigt beim Häkchen „N images", sobald mehr als eins drauf ist.
+- Karten in der Shelf-Leiste verschwinden nach 10 Tagen. Die Liste überlebt
+  Neustarts, dadurch hingen dort noch Aufnahmen von vor Wochen.
 - Das automatische Kopieren nach einem Screenshot (`ClipboardOnly`) stapelt
   bewusst nicht: dort ist jeder Screenshot eine eigene Absicht.
 - Eine Serie endet nach acht Bildern oder 20000 Pixeln Höhe. Danach fängt der
@@ -52,8 +61,13 @@ mittig auf der Breite des breitesten, mit 12 px Abstand dazwischen.
   Neubau-und-Installieren-Lauf ausprobiert werden können. Das Skript richtet
   fehlende Teile selbst ein: node_modules, native ffmpeg-/onnxruntime-Deps
   (`node scripts/setup.js`) und die Sidecar-Binaries.
-- Gebaut und Typecheck grün, Codex-Gegencheck eingearbeitet. Das Verhalten
-  selbst hat Louis in der Dev-App zu testen.
+- Getestet in der installierten App: `Cmd+C`, dann `Cmd+Shift+C` ergibt ein Bild
+  aus beiden. Codex-Gegencheck eingearbeitet, CI grün.
+- **Testweg:** zwei Kopien der App gleichzeitig laufen zu lassen kostet Zeit statt
+  sie zu sparen. Globale Kürzel bekommt nur die zuerst gestartete App, und beide
+  legen ihre Shelf-Leiste in dieselbe Bildschirmecke. Zum Testen deshalb
+  `scripts/install-shelf.sh` (Debug-Build in `/Applications`), nicht die Dev-App
+  daneben.
 
 ## 2026-08-28 (Kein Einfrieren mehr beim Schließen eines Fensters)
 
