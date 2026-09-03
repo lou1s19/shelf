@@ -64,6 +64,19 @@ bleibt. Beides ist eingebaut und tut heute nichts.
   und dürfen die Schranke entfernen und weitergeben. Das ist ein Türschloss,
   kein Tresor.
 - Zum Entwickeln schaltet `SHELF_POLICY_URL=` die Prüfung ganz ab.
+- **Der Review fand die Schranke zu löchrig, das ist behoben:** Teleprompter,
+  Untertitel und Screenshot-Editor waren nirgends geprüft, OCR nur an einem von
+  drei Eingängen, und eine Automationsregel „nach der Aufnahme exportieren"
+  umging den Export-Gate komplett. Damit wäre `app` als Schalter für die ganze
+  App keiner gewesen. Teleprompter und Screenshot-Editor hängen jetzt in
+  `ShowCapWindow::show`, durch die Tray, Kürzel, Automationen und Frontend alle
+  laufen; Export und OCR zusätzlich im Automations-Host.
+- **Drei Härtungen dazu:** eine vergiftete `RwLock` beendet nicht mehr die App
+  (`require` liest bei jeder Aufnahme durch sie), der Speicher wird nicht mehr
+  im Wettlauf überschrieben (Lizenz einlösen während eines Policy-Abrufs hat
+  eine der beiden Änderungen still verworfen), und `release-shelf.sh` brach beim
+  allerersten Lauf ab, weil `[ -d x ] && cmd` unter `set -e` als
+  fehlgeschlagene Liste zählt, wenn das Verzeichnis fehlt.
 
 ## 2026-08-28 (Kein Einfrieren mehr beim Schließen eines Fensters)
 
