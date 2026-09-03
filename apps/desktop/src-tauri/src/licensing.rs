@@ -7,12 +7,19 @@
 //!
 //! During development, set `SHELF_POLICY_URL=` (empty) to keep the app off the
 //! network entirely.
+//!
+//! Known limit: someone who can answer for the domain indefinitely can keep
+//! serving an old but validly signed policy and so hide a later one. They still
+//! cannot forge access, because forging needs the private key. Closing that gap
+//! would mean expiring the policy after N days, and an expiring policy locks
+//! out anyone whose Mac is offline for longer than N days. Being suppressible
+//! is the smaller harm, so the policy has no expiry.
 
 use crate::windows::ShowCapWindow;
 use serde::{Deserialize, Serialize};
 use shelf_licensing::{Entitlements, Feature, License, Policy, Tier, Verdict, now_unix};
 use specta::Type;
-use std::sync::RwLock;
+use std::sync::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Wry};
 use tauri_plugin_store::StoreExt;
@@ -132,6 +139,10 @@ pub struct LicensingChanged(pub LicensingStatus);
 #[derive(Default)]
 pub struct LicensingState {
     inner: RwLock<Inner>,
+    /// Serialises the load-edit-save cycle on the store. Activating a license
+    /// while a policy fetch is finishing would otherwise write back a copy that
+    /// still has the old license in it, and the activation would vanish.
+    stored: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -142,8 +153,28 @@ struct Inner {
 }
 
 impl LicensingState {
+    // A poisoned lock must not brick the app. `require` reads through this on
+    // every recording, screenshot and export, so treating poison as fatal would
+    // turn one panic anywhere in this file into an app that refuses everything
+    // until it is restarted. The data behind it is a cached policy and a
+    // license, both re-derivable, so carrying on with it is the safe choice.
+    fn read(&self) -> RwLockReadGuard<'_, Inner> {
+        self.inner.read().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn write(&self) -> RwLockWriteGuard<'_, Inner> {
+        self.inner.write().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn update_stored(&self, app: &AppHandle<Wry>, edit: impl FnOnce(&mut Stored)) {
+        let _guard = self.stored.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stored = Stored::load(app);
+        edit(&mut stored);
+        stored.save(app);
+    }
+
     fn entitlements(&self, now: i64) -> Entitlements {
-        let inner = self.inner.read().unwrap();
+        let inner = self.read();
         let tier = inner
             .license
             .as_ref()
@@ -152,17 +183,12 @@ impl LicensingState {
     }
 
     fn update_state(&self, now: i64) -> UpdateState {
-        self.inner
-            .read()
-            .unwrap()
-            .policy
-            .verdict(current_version(), now)
-            .into()
+        self.read().policy.verdict(current_version(), now).into()
     }
 
     fn status(&self, now: i64) -> LicensingStatus {
         let entitlements = self.entitlements(now);
-        let inner = self.inner.read().unwrap();
+        let inner = self.read();
         LicensingStatus {
             tier: match entitlements.tier {
                 Tier::Pro => "pro",
@@ -262,14 +288,9 @@ pub fn licensing_activate(app: AppHandle<Wry>, key: String) -> Result<LicensingS
         return Err("That license has run out.".to_string());
     }
 
-    {
-        let state = app.state::<LicensingState>();
-        state.inner.write().unwrap().license = Some(license);
-    }
-
-    let mut stored = Stored::load(&app);
-    stored.license = Some(key);
-    stored.save(&app);
+    let state = app.state::<LicensingState>();
+    state.write().license = Some(license);
+    state.update_stored(&app, |stored| stored.license = Some(key));
 
     info!("licensing: license activated");
     broadcast(&app);
@@ -279,11 +300,9 @@ pub fn licensing_activate(app: AppHandle<Wry>, key: String) -> Result<LicensingS
 #[tauri::command(async)]
 #[specta::specta]
 pub fn licensing_deactivate(app: AppHandle<Wry>) -> LicensingStatus {
-    app.state::<LicensingState>().inner.write().unwrap().license = None;
-
-    let mut stored = Stored::load(&app);
-    stored.license = None;
-    stored.save(&app);
+    let state = app.state::<LicensingState>();
+    state.write().license = None;
+    state.update_stored(&app, |stored| stored.license = None);
 
     broadcast(&app);
     status(&app)
@@ -305,7 +324,7 @@ pub fn init(app: &AppHandle<Wry>) {
     };
 
     let state = app.state::<LicensingState>();
-    let mut inner = state.inner.write().unwrap();
+    let mut inner = state.write();
     inner.last_checked = stored.last_checked;
 
     if let Some(blob) = &stored.policy {
@@ -359,32 +378,28 @@ async fn refresh_policy(app: &AppHandle<Wry>) -> Result<(), String> {
     }
 
     let now = now_unix();
+    let state = app.state::<LicensingState>();
     let accepted = {
-        let state = app.state::<LicensingState>();
-        let mut inner = state.inner.write().unwrap();
+        let mut inner = state.write();
         inner.last_checked = Some(now);
-
         let cached_issued = inner.policy.issued;
-        if fetched.issued < cached_issued {
+        let accepted = inner.policy.replace_if_newer(fetched);
+        if !accepted {
             warn!(
-                "licensing: served policy is older than the cached one ({} < {cached_issued}), keeping the cached one",
-                fetched.issued
+                "licensing: served policy is older than the cached one (issued < {cached_issued}), keeping the cached one"
             );
-            false
-        } else {
-            inner.policy = fetched;
-            true
         }
+        accepted
     };
 
-    // Written outside the lock: saving touches the store on disk, and holding
-    // the write lock across that blocks every feature check in the meantime.
-    let mut stored = Stored::load(app);
-    if accepted {
-        stored.policy = Some(blob);
-    }
-    stored.last_checked = Some(now);
-    stored.save(app);
+    // Saved outside the lock: the store writes to disk, and holding the write
+    // lock across that would block every feature check in the meantime.
+    state.update_stored(app, |stored| {
+        if accepted {
+            stored.policy = Some(blob);
+        }
+        stored.last_checked = Some(now);
+    });
 
     enforce(app).await;
     broadcast(app);

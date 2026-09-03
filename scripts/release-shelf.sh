@@ -46,8 +46,14 @@ if [ "$VERSION" != "$CARGO_VERSION" ]; then
 fi
 
 echo "==> checks"
-security find-identity -v -p codesigning | grep -q "$IDENTITY" || {
-	echo "no signing identity \"$IDENTITY\" in the keychain" >&2; exit 1; }
+# Read first, match after: under `set -o pipefail` a `grep -q` that exits on the
+# first match can SIGPIPE the left-hand side, and the pipeline then reports
+# failure even though the identity was found.
+IDENTITIES="$(security find-identity -v -p codesigning)"
+case "$IDENTITIES" in
+	*"$IDENTITY"*) ;;
+	*) echo "no signing identity \"$IDENTITY\" in the keychain" >&2; exit 1 ;;
+esac
 xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1 || {
 	echo "no notarisation profile \"$NOTARY_PROFILE\"." >&2
 	echo "Create it once (see the header of this script), then run again." >&2
@@ -77,7 +83,12 @@ rm -f "$BUILD_LOG"
 SOURCE="$BUNDLE_DIR/$APP_NAME"
 [ -d "$SOURCE" ] || { echo "no bundle at $SOURCE" >&2; exit 1; }
 
-[ -d "$OUT" ] && /bin/rm -rf "$OUT"
+# Written as an `if` rather than `[ -d ... ] && ...`: that form is one list, and
+# when the test fails the list fails, which under `set -e` ends the script. On a
+# first run the directory does not exist yet, so it aborted before building.
+if [ -d "$OUT" ]; then
+	/bin/rm -rf "$OUT"
+fi
 mkdir -p "$OUT"
 # ditto drops the extended attributes an iCloud-synced folder keeps adding,
 # which codesign refuses to sign around.
@@ -91,7 +102,9 @@ find "$OUT/$APP_NAME" -name "*.dylib" -type f -print0 |
 	xargs -0 -n1 codesign --force --options runtime --timestamp -s "$IDENTITY" >/dev/null
 for fw in "$OUT/$APP_NAME"/Contents/Frameworks/*.framework; do
 	[ -d "$fw" ] || continue
-	[ -d "$fw/Versions/A" ] && codesign --force --options runtime --timestamp -s "$IDENTITY" "$fw/Versions/A" >/dev/null
+	if [ -d "$fw/Versions/A" ]; then
+		codesign --force --options runtime --timestamp -s "$IDENTITY" "$fw/Versions/A" >/dev/null
+	fi
 	codesign --force --options runtime --timestamp -s "$IDENTITY" "$fw" >/dev/null
 done
 for bin in "$OUT/$APP_NAME"/Contents/MacOS/*; do

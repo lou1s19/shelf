@@ -116,13 +116,14 @@ impl Policy {
         }
     }
 
-    /// Keeps whichever policy was issued later, so an older copy replayed from
-    /// a cache or a stale CDN edge cannot lower the floor again.
-    pub fn newer_of(self, other: Policy) -> Policy {
-        if other.issued > self.issued {
-            other
-        } else {
-            self
+    /// Takes `other` only if it is not older than what we already trust, so an
+    /// older copy replayed from a cache or a stale CDN edge cannot lower a
+    /// floor that was already raised. Says whether it took it.
+    pub fn replace_if_newer(&mut self, other: Policy) -> bool {
+        if other.issued < self.issued {
+            return false;
         }
+        *self = other;
+        true
     }
 }

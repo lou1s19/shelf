@@ -989,9 +989,12 @@ pub async fn update_screenshot_config(
 #[tauri::command]
 #[specta::specta]
 pub async fn recognize_screenshot_text(
+    app: AppHandle,
     instance: WindowScreenshotEditorInstance,
     region: ScreenshotOcrRegion,
 ) -> Result<ScreenshotOcrResult, String> {
+    crate::licensing::require(&app, shelf_licensing::Feature::Ocr)?;
+
     let region = clamp_screenshot_ocr_region(region, instance.image_width, instance.image_height)?;
     let image = create_screenshot_ocr_image(
         instance.source_rgba.as_ref(),

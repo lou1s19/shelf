@@ -1000,7 +1000,22 @@ pub enum ShowCapWindow {
 }
 
 impl ShowCapWindow {
+    /// The windows that are a paid feature in themselves. Checked here rather
+    /// than at each caller: the tray, the hotkeys, the automations and the
+    /// frontend all come through this one function.
+    fn required_license(&self) -> Option<shelf_licensing::Feature> {
+        match self {
+            Self::Teleprompter => Some(shelf_licensing::Feature::Teleprompter),
+            Self::ScreenshotEditor { .. } => Some(shelf_licensing::Feature::ScreenshotEditor),
+            _ => None,
+        }
+    }
+
     pub async fn show(&self, app: &AppHandle<Wry>) -> tauri::Result<WebviewWindow> {
+        if let Some(feature) = self.required_license() {
+            crate::licensing::require(app, feature).map_err(|e| anyhow!(e))?;
+        }
+
         if let Self::Editor { project_path } = &self {
             let state = app.state::<EditorWindowIds>();
             let window_id = {

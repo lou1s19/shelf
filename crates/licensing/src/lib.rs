@@ -135,13 +135,24 @@ mod tests {
 
     #[test]
     fn a_stale_policy_cannot_lower_the_floor() {
-        let new = policy_with("1.0.0", 0, 2_000);
-        let old = policy_with("0.0.0", 0, 1_000);
-        assert_eq!(new.clone().newer_of(old).minimum_version, "1.0.0");
-        assert_eq!(
-            policy_with("0.0.0", 0, 1_000).newer_of(new).minimum_version,
-            "1.0.0"
-        );
+        let mut held = policy_with("1.0.0", 0, 2_000);
+        assert!(!held.replace_if_newer(policy_with("0.0.0", 0, 1_000)));
+        assert_eq!(held.minimum_version, "1.0.0");
+    }
+
+    #[test]
+    fn a_newer_policy_is_taken_even_when_it_lowers_the_floor() {
+        // Louis has to be able to take a floor back if he set it by mistake.
+        let mut held = policy_with("1.0.0", 0, 1_000);
+        assert!(held.replace_if_newer(policy_with("0.0.0", 0, 2_000)));
+        assert_eq!(held.minimum_version, "0.0.0");
+    }
+
+    #[test]
+    fn a_policy_reissued_in_the_same_second_still_applies() {
+        let mut held = policy_with("1.0.0", 0, 1_000);
+        assert!(held.replace_if_newer(policy_with("1.2.0", 0, 1_000)));
+        assert_eq!(held.minimum_version, "1.2.0");
     }
 
     #[test]
