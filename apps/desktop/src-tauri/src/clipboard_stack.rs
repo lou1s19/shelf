@@ -17,6 +17,7 @@ use std::{
 use image::{Rgba, RgbaImage};
 use tracing::{debug, warn};
 
+/// Only used where the clipboard cannot be read back, see [`interrupted`].
 const STACK_WINDOW: Duration = Duration::from_secs(10);
 /// Transparent breathing room between two shots, so the seam is visible when both have the
 /// same background colour.
@@ -48,14 +49,20 @@ static RUN: Mutex<Option<Run>> = Mutex::new(None);
 /// wrong order and leave the run describing an image that is no longer on it.
 static COPY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Copies a screenshot together with the ones copied just before it, and hands the file to
-/// `write`. Returns how many screenshots ended up on the clipboard.
-pub async fn copy_stacked<F, Fut>(path: &Path, write: F) -> Result<usize, String>
+/// Copies a screenshot and hands the file to `write`. With `stack`, the screenshots copied
+/// before it come along in one image; without, it is copied on its own but stays the start of
+/// a run, so the next stacking copy has something to build on. Returns how many screenshots
+/// ended up on the clipboard.
+pub async fn copy<F, Fut>(path: &Path, stack: bool, write: F) -> Result<usize, String>
 where
     F: FnOnce(PathBuf) -> Fut,
     Fut: Future<Output = Result<(), String>>,
 {
     let _guard = COPY_LOCK.lock().await;
+
+    if !stack {
+        reset();
+    }
 
     // Reading, decoding and encoding whole screenshots takes long enough to stall the runtime
     // thread it runs on, so it happens off to the side.
@@ -75,19 +82,6 @@ where
             Err(e)
         }
     }
-}
-
-/// Copies a single screenshot through `write` and ends any run: whoever calls this wants
-/// exactly the one picture on the clipboard.
-pub async fn copy_alone<F, Fut>(path: &Path, write: F) -> Result<(), String>
-where
-    F: FnOnce(PathBuf) -> Fut,
-    Fut: Future<Output = Result<(), String>>,
-{
-    let _guard = COPY_LOCK.lock().await;
-    let result = write(path.to_path_buf()).await;
-    reset();
-    result
 }
 
 struct StackedCopy {
@@ -178,20 +172,21 @@ fn lock() -> std::sync::MutexGuard<'static, Option<Run>> {
     RUN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Why the run cannot go on, or `None` while it can.
+/// Why the run cannot go on, or `None` while it can. What keeps it alive is the clipboard
+/// still holding this app's own image: as long as that is true, adding to it is exactly what
+/// the user asked for, however long ago the last copy was.
 fn interrupted(run: &Run) -> Option<&'static str> {
-    let idle = run.last_copy.elapsed();
-    if idle >= STACK_WINDOW {
-        return Some("last copy too long ago");
+    match (&run.marker, clipboard_marker()) {
+        (Some(ours), Some(now)) if *ours == now => None,
+        // No way to read the clipboard here, so the run is trusted for a short while instead.
+        (None, None) => {
+            (run.last_copy.elapsed() >= STACK_WINDOW).then_some("last copy too long ago")
+        }
+        (ours, now) => {
+            debug!(?ours, ?now, "Clipboard written elsewhere");
+            Some("clipboard written elsewhere")
+        }
     }
-
-    let now = clipboard_marker();
-    if run.marker != now {
-        debug!(ours = ?run.marker, ?now, "Clipboard written elsewhere");
-        return Some("clipboard written elsewhere");
-    }
-
-    None
 }
 
 #[cfg(target_os = "macos")]

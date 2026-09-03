@@ -2851,13 +2851,7 @@ async fn copy_screenshot_to_clipboard(
     path: String,
     stack: bool,
 ) -> Result<u32, String> {
-    let path = std::path::Path::new(&path);
-    if !stack {
-        recording::write_screenshot_to_clipboard(&app, path).await?;
-        return Ok(1);
-    }
-
-    recording::write_screenshot_to_clipboard_stacked(&app, path)
+    recording::write_screenshot_to_clipboard_stacked(&app, std::path::Path::new(&path), stack)
         .await
         .map(|count| count as u32)
 }
