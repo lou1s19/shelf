@@ -23,6 +23,11 @@ function arg(name, fallback) {
 async function main() {
 	const version = arg("version");
 	const baseUrl = arg("base-url").replace(/\/+$/, "");
+	// Where the package itself is downloaded from, when that is not the website.
+	// A GitHub release asset lives under a flat /releases/download/<tag>/ path,
+	// nothing like the /updates/<version>/ layout the website uses, so the two
+	// cannot be derived from one another.
+	const assetBase = arg("asset-base", "").replace(/\/+$/, "");
 	const notes = arg("notes", "");
 	const bundleDir = arg(
 		"bundle-dir",
@@ -58,7 +63,12 @@ async function main() {
 		platforms: Object.fromEntries(
 			platforms.map((name) => [
 				name,
-				{ signature, url: `${baseUrl}/updates/${version}/${tarball}` },
+				{
+					signature,
+					url: assetBase
+						? `${assetBase}/${tarball}`
+						: `${baseUrl}/updates/${version}/${tarball}`,
+				},
 			]),
 		),
 	};
@@ -68,6 +78,9 @@ async function main() {
 		path.join(outDir, "updates", "latest.json"),
 		`${JSON.stringify(feed, null, 2)}\n`,
 	);
+	// Copied even when the package is served elsewhere: the signature in
+	// latest.json covers this exact file, so whatever gets uploaded has to be
+	// byte for byte this one.
 	await fs.copyFile(
 		path.join(bundleDir, tarball),
 		path.join(outDir, "updates", version, tarball),
