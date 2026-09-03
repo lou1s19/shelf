@@ -162,6 +162,14 @@ ditto "$DMG" "$OUT/Shelf-$VERSION.dmg"
 ditto "$WORK/website" "$OUT/website"
 DMG="$OUT/Shelf-$VERSION.dmg"
 
+echo "==> checking the update is installable"
+# Proves the package can actually be installed by the app we just built: right
+# key, and the signature matches these exact bytes. A feed that fails here
+# fails silently at the user, months later, when the first update never lands.
+node "$REPO/scripts/verify-update-feed.mjs" \
+	--feed "$WORK/website/updates/latest.json" \
+	--package "$FEED_BUNDLE/Shelf.app.tar.gz"
+
 echo
 echo "==> done"
 echo "  download  : $DMG"
