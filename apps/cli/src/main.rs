@@ -21,6 +21,11 @@ use record::RecordStart;
 use serde::Serialize;
 use tracing_subscriber::{filter::LevelFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+/// How the command is actually called. The crate is still named `cap` from the
+/// fork, so CARGO_PKG_NAME would tell an agent to run a command that does not
+/// exist. Everything user- or agent-facing goes through this.
+pub const BINARY_NAME: &str = "shelf";
+
 const TOKIO_WORKER_THREAD_STACK_SIZE: usize = 16 * 1024 * 1024;
 const ANSI_RESET: &str = "\x1b[0m";
 const ANSI_BOLD: &str = "\x1b[1m";
@@ -181,7 +186,7 @@ enum Commands {
     Selftest(selftest::SelftestArgs),
     /// Print CLI version and execution context
     Version(FormatArgs),
-    /// Inspect or manage the desktop-installed `cap` shim
+    /// Inspect or manage the desktop-installed `shelf` shim
     Desktop(DesktopArgs),
     /// Print the machine-readable capability & JSON-schema manifest for agents
     Guide(FormatArgs),
@@ -350,11 +355,11 @@ struct DesktopArgs {
 
 #[derive(Subcommand)]
 enum DesktopCommands {
-    /// Show whether the `cap` shim is installed and on PATH
+    /// Show whether the `shelf` shim is installed and on PATH
     Status(FormatArgs),
-    /// Install the `cap` shim onto your PATH
+    /// Install the `shelf` shim onto your PATH
     InstallCli(FormatArgs),
-    /// Remove the `cap` shim from your PATH
+    /// Remove the `shelf` shim from your PATH
     UninstallCli(FormatArgs),
 }
 

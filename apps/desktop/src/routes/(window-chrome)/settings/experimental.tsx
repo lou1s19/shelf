@@ -8,6 +8,7 @@ import {
 	deriveGeneralSettings,
 	type GeneralSettingsStore,
 } from "~/utils/general-settings";
+import { CommandLineSection } from "./CommandLine";
 import {
 	Section,
 	SectionRows,
@@ -90,6 +91,8 @@ function Inner(props: {
 						/>
 					</SectionRows>
 				</Section>
+
+				<CommandLineSection />
 			</SettingsPageContent>
 		</div>
 	);

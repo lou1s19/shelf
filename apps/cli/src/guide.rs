@@ -95,7 +95,7 @@ const fn cmd(
 fn build() -> Guide {
     Guide {
         schema_version: GUIDE_SCHEMA_VERSION,
-        binary: env!("CARGO_PKG_NAME"),
+        binary: crate::BINARY_NAME,
         version: env!("CARGO_PKG_VERSION"),
         description: "Shelf screen recording, driven from the command line. Add --json to any command \
                       for machine-readable output.",
@@ -215,7 +215,7 @@ fn build() -> Guide {
             ),
             cmd(
                 "desktop status|install-cli|uninstall-cli",
-                "Inspect or manage the `cap` shim on PATH.",
+                "Inspect or manage the `shelf` shim on PATH.",
                 OutputMode::SingleJson,
                 &[],
             ),

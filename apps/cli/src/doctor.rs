@@ -88,7 +88,7 @@ impl VersionInfo {
 
         Self {
             schema_version: SCHEMA_VERSION,
-            name: env!("CARGO_PKG_NAME"),
+            name: crate::BINARY_NAME,
             version: env!("CARGO_PKG_VERSION"),
             platform: PlatformInfo::current(),
             executable_path: exe.as_deref().map(display_path),
