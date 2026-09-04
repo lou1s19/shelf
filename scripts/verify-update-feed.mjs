@@ -78,9 +78,7 @@ async function main() {
 
 		const pkg = await read(arg("package", entry.url));
 		const signed =
-			algorithm === "ED"
-				? createHash("blake2b512").update(pkg).digest()
-				: pkg;
+			algorithm === "ED" ? createHash("blake2b512").update(pkg).digest() : pkg;
 
 		if (verify(null, signed, key, signature.subarray(10))) {
 			console.log(`${platform}: signature valid, ${pkg.length} bytes`);
