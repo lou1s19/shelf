@@ -79,6 +79,42 @@ unten gesetzt, jeweils mittig auf der Breite des breitesten, mit 12 px Abstand.
   `scripts/install-shelf.sh` (Debug-Build in `/Applications`), nicht die Dev-App
   daneben.
 
+## 2026-09-04 (Oberflaeche entruempelt, Selbsttest ohne Louis)
+
+Louis hat die App zum ersten Mal wie ein Fremder installiert und dabei drei Dinge
+gefunden, die vorher niemand gesehen hat.
+
+- **Wolken raus.** Drei animierte PNGs, 1,7 MB, liefen als Deko dauerhaft hinter dem
+  Onboarding. Aus dem Cap-Fork, ohne Aussage ueber Shelf. 232 Zeilen weniger.
+- **Die CLI nannte sich `cap`.** `guide --json` und `version --json` gaben den
+  Crate-Namen aus statt des echten Befehls. Genau diese Datei ist dafuer da, dass ein
+  Agent Shelf bedienen kann; er haette `cap screenshot` aufgerufen, was es nicht gibt.
+  Alles nach aussen Sichtbare geht jetzt ueber `BINARY_NAME`.
+- **Die CLI-Seite steht unter Experimental**, kein eigener Menuepunkt mehr. Fuer die
+  allermeisten Nutzer ist eine Kommandozeile nichts.
+- **Deeplink auf eine Einstellungsseite war halb kaputt.** Die Seite steckt in der URL,
+  mit der das Fenster erzeugt wird. War das Fenster schon offen, wurde es nur nach vorn
+  geholt und der Seitenwunsch verworfen: `page=hotkeys` landete auf der zuletzt
+  gezeigten Seite. Jetzt navigiert ein offenes Fenster nach.
+- **Neuer Skill `mac-app-selbsttest`** (global): Claude sieht sich die Oberflaeche selbst
+  an, statt Louis Screenshots schicken zu lassen. Moeglich durch
+  `shelf screenshot --window <id>`, das ein einzelnes Fenster aufnimmt, ohne es nach vorn
+  zu holen, plus `shelf://`-Deeplinks zum Ansteuern ohne Klick. Kriterien in
+  `.claude/ui-checks.md`. Den Deeplink-Fehler oben hat dieser Ablauf bei seinem ersten
+  Lauf gefunden.
+- Die Kommandozeile ist einmal komplett durchgespielt: Ziele auflisten, Screenshot,
+  3 Sekunden aufnehmen, Projekt lesen, nach mp4 exportieren. Laeuft, stdout bleibt
+  sauberes JSON, das ffmpeg-Gerede geht nach stderr.
+- **Aufgefallen, nicht behoben:** `screenshot` und `record` nehmen `--path`, `export`
+  nimmt `--output`. Stolperfalle fuer Menschen wie fuer Agenten.
+- **`docs/RELEASE.md` war nie im Repo.** `/docs/` steht in der `.gitignore`, geerbt von
+  Cap, wo dort maschinenlokaler SEO-Kram lag. Der ganze Release-Ablauf vom 03.09. lag
+  also nur lokal und waere mit dem Arbeitsordner verschwunden. Aus dem Papierkorb
+  geholt, `/docs/` aus der `.gitignore` genommen. `git add -A` meldet so etwas nicht,
+  gefunden hat es erst der Versuch, die Pruefkriterien danebenzulegen.
+- **Eine iCloud-Konfliktkopie entfernt**, `binaries/.gitignore 2`, inhaltsgleich mit dem
+  Original und seit `124ea094c` mitgeschleppt.
+
 ## 2026-09-03 (Shelf ist veroeffentlicht, unter AGPLv3)
 
 Louis wollte die App zum Download anbieten und dabei privat und Closed Source

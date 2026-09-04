@@ -1378,6 +1378,22 @@ impl ShowCapWindow {
                 recenter_window_if_offscreen(&window);
             }
 
+            // The requested page only reaches the webview through the URL it is
+            // created with. A settings window that is already open would just be
+            // raised, still showing whatever page it was on, so "open settings at
+            // hotkeys" quietly did nothing whenever settings happened to be open.
+            if let Self::Settings { page: Some(page) } = self {
+                match window.url() {
+                    Ok(mut url) => {
+                        url.set_path(&format!("/settings/{page}"));
+                        if let Err(e) = window.navigate(url) {
+                            warn!("Failed to navigate settings to {page}: {e}");
+                        }
+                    }
+                    Err(e) => warn!("Failed to read the settings window URL: {e}"),
+                }
+            }
+
             window.show().ok();
             window.unminimize().ok();
             window.set_focus().ok();
