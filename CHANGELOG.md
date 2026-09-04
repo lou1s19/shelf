@@ -111,13 +111,25 @@ Veroeffentlichung entschieden.
   von Caps Gruender und liegt seit zwei Jahren oeffentlich in `CapSoftware/Cap`.
   In Louis' 98 Commits keine Schluessel.
 - **Nachtrag 04.09.: die DMG sah tot aus.** Louis' Fund. Das Fenster hat einen
-  Hintergrund mit Pfeil und gesetzten Symbolpositionen, konfiguriert in
+  Hintergrund mit Pfeil und gesetzte Symbolpositionen, konfiguriert in
   `tauri.conf.json`. Mein Release-Skript baute das Abbild aber selbst mit
-  `hdiutil` und warf die Gestaltung weg. Behoben: das Skript nimmt jetzt
-  `.DS_Store`, `.background` und `.VolumeIcon.icns` aus Tauris eigenem Abbild
-  und legt sie um die notarisierte App. Kein `bundle_dmg.sh`, das treibt Finder
-  per AppleScript und reisst ein Fenster auf. Die veroeffentlichte 0.5.9 wurde
-  ohne Neubau ersetzt: das notarisierte Buendel lag schon im Update-Paket.
+  `hdiutil` und warf die Gestaltung weg.
+  **Erster Versuch war falsch:** `.DS_Store` aus Tauris Abbild zu kopieren
+  bringt die Positionen mit, aber nicht den Hintergrund. Der haengt an einem
+  Alias, den der Finder **auf dem gemounteten Volume** erzeugt; aus einem
+  anderen Abbild kopiert zeigt er ins Leere. Louis sah es sofort und verwies
+  auf Orbly.
+  **Richtig ist Orblys Weg**, jetzt als `scripts/make-dmg.sh`: beschreibbares
+  Abbild anlegen, mounten, Layout per `osascript` setzen, abhaengen,
+  komprimieren. Dabei blitzt ein Finder-Fenster auf, anders ist ein
+  DMG-Hintergrund nicht zu setzen. Beide Apps teilen sich dieselbe Vorlage,
+  1320x758, Fenster 660x379, Symbole bei 180/140 und 480/140.
+  **Falle dabei:** ist schon ein Volume „Shelf" gemountet, heisst das neue
+  „Shelf 2" und der Alias zeigt auf den falschen Namen. Das Skript liest den
+  echten Namen aus und bricht ab, wenn der Finder nicht ansprechbar ist, statt
+  einen Download auszuliefern, der wie ein Ordner aussieht.
+  Die veroeffentlichte 0.5.9 wurde ohne Neubau ersetzt: das notarisierte
+  Buendel lag schon im Update-Paket.
 - **Fremdtest gemacht:** die DMG von der Website geladen, Quarantaene-Flag wie
   nach einem Browser-Download gesetzt, Gatekeeper akzeptiert Abbild und App,
   Ticket angeheftet, Version 0.5.9, arm64.

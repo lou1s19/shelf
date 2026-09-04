@@ -124,48 +124,11 @@ xcrun stapler staple "$APP"
 rm -f "$WORK/notarize-app.zip"
 
 echo "==> packing the download"
-# The window design (background image, icon positions, volume icon) lives in
-# tauri.conf.json and is applied by Tauri while bundling. Tauri's own image
-# cannot be shipped, because it holds the app as it was before signing and
-# notarisation, so its layout files get wrapped around the stapled app instead.
-#
-# The alternative would be re-running Tauri's bundle_dmg.sh, which drives Finder
-# through osascript and opens a window on whoever is sitting at the machine.
-# Copying the finished layout needs no Finder at all.
+# Built by scripts/make-dmg.sh rather than here: the background is referenced
+# from the volume's own .DS_Store by an alias created on that volume, so it
+# cannot be assembled from the outside. See the header of that script.
 DMG="$WORK/Shelf-$VERSION.dmg"
-STAGE="$WORK/dmg-stage"
-mkdir -p "$STAGE"
-ditto "$APP" "$STAGE/$APP_NAME"
-ln -s /Applications "$STAGE/Applications"
-
-TAURI_DMG="$(find "$REPO/target/release/bundle/dmg" -maxdepth 1 -name '*.dmg' 2>/dev/null | head -1)"
-if [ -z "$TAURI_DMG" ]; then
-	echo "no bundled DMG to take the window layout from" >&2
-	exit 1
-fi
-
-LAYOUT="$WORK/dmg-layout"
-mkdir -p "$LAYOUT"
-hdiutil attach -nobrowse -readonly -mountpoint "$LAYOUT" "$TAURI_DMG" >/dev/null
-# .DS_Store carries the window size, the icon positions and the reference to the
-# background image. Without it the download opens as a bare file list.
-for item in .DS_Store .background .VolumeIcon.icns; do
-	if [ -e "$LAYOUT/$item" ]; then
-		ditto "$LAYOUT/$item" "$STAGE/$item"
-	fi
-done
-hdiutil detach "$LAYOUT" >/dev/null
-rmdir "$LAYOUT" 2>/dev/null || true
-
-if [ ! -f "$STAGE/.DS_Store" ]; then
-	echo "no window layout in $TAURI_DMG, the download would look unfinished" >&2
-	exit 1
-fi
-
-# Same volume name Tauri uses. The background is referenced from .DS_Store by an
-# alias that names the volume, so a different name leaves the window blank.
-hdiutil create -volname "Shelf" -srcfolder "$STAGE" -ov -format UDZO -fs HFS+ "$DMG" >/dev/null
-/bin/rm -rf "$STAGE"
+bash "$REPO/scripts/make-dmg.sh" "$APP" "$DMG"
 codesign --force --timestamp -s "$IDENTITY" "$DMG" >/dev/null
 
 echo "==> notarising the download"
