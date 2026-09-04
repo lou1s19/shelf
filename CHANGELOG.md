@@ -110,6 +110,14 @@ Veroeffentlichung entschieden.
 - **Historie geprueft:** die alte `apps/desktop/src-tauri/.env` stammt von 2023
   von Caps Gruender und liegt seit zwei Jahren oeffentlich in `CapSoftware/Cap`.
   In Louis' 98 Commits keine Schluessel.
+- **Nachtrag 04.09.: die DMG sah tot aus.** Louis' Fund. Das Fenster hat einen
+  Hintergrund mit Pfeil und gesetzten Symbolpositionen, konfiguriert in
+  `tauri.conf.json`. Mein Release-Skript baute das Abbild aber selbst mit
+  `hdiutil` und warf die Gestaltung weg. Behoben: das Skript nimmt jetzt
+  `.DS_Store`, `.background` und `.VolumeIcon.icns` aus Tauris eigenem Abbild
+  und legt sie um die notarisierte App. Kein `bundle_dmg.sh`, das treibt Finder
+  per AppleScript und reisst ein Fenster auf. Die veroeffentlichte 0.5.9 wurde
+  ohne Neubau ersetzt: das notarisierte Buendel lag schon im Update-Paket.
 - **Fremdtest gemacht:** die DMG von der Website geladen, Quarantaene-Flag wie
   nach einem Browser-Download gesetzt, Gatekeeper akzeptiert Abbild und App,
   Ticket angeheftet, Version 0.5.9, arm64.
