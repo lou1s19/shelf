@@ -118,9 +118,8 @@ export default function CliSettings() {
 													: "Not installed"}
 											</p>
 											<p class="text-xs leading-snug text-gray-10">
-												The desktop app installs a local{" "}
-												<code class="font-mono text-gray-12">cap</code> command
-												that points back to the bundled CLI.
+												Puts a <code class="font-mono text-gray-12">shelf</code>{" "}
+												command on your PATH that talks to this app.
 											</p>
 										</div>
 										<div class="flex shrink-0 gap-2">
@@ -175,13 +174,14 @@ export default function CliSettings() {
 																{currentStatus().pathEntry}
 															</code>{" "}
 															to your PATH to use{" "}
-															<code class="font-mono text-gray-12">cap</code>{" "}
+															<code class="font-mono text-gray-12">shelf</code>{" "}
 															from a new terminal.
 														</>
 													}
 												>
-													Added <code class="font-mono text-gray-12">cap</code>{" "}
-													to your PATH. Restart your terminal to use it, or run
+													Added{" "}
+													<code class="font-mono text-gray-12">shelf</code> to
+													your PATH. Restart your terminal to use it, or run
 													this now:
 												</Show>
 											</p>

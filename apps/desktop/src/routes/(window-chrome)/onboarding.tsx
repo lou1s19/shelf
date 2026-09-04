@@ -48,9 +48,6 @@ import IconLucideSave from "~icons/lucide/save";
 import IconLucideShield from "~icons/lucide/shield";
 import IconLucideVolume2 from "~icons/lucide/volume-2";
 import IconLucideVolumeX from "~icons/lucide/volume-x";
-import cloud1 from "../../assets/illustrations/cloud-1.png";
-import cloud2 from "../../assets/illustrations/cloud-2.png";
-import cloud3 from "../../assets/illustrations/cloud-3.png";
 import startupAudio from "../../assets/tears-and-fireflies-adi-goldstein.mp3";
 import { WindowChromeHeader } from "./Context";
 
@@ -189,77 +186,6 @@ function createLoopingPhase(
 }
 
 function OnboardingAmbientBackdrop() {
-	let cloud1Animation: Animation | undefined;
-	let cloud2Animation: Animation | undefined;
-	let cloud3Animation: Animation | undefined;
-
-	const bindCloud1 = (el: HTMLDivElement | null) => {
-		cloud1Animation?.cancel();
-		cloud1Animation = undefined;
-		if (!el) return;
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				cloud1Animation = el.animate(
-					[
-						{ transform: "translate(0, 0)" },
-						{ transform: "translate(-20px, 10px)" },
-						{ transform: "translate(0, 0)" },
-					],
-					{ duration: 30000, iterations: Infinity, easing: "linear" },
-				);
-			});
-		});
-	};
-
-	const bindCloud2 = (el: HTMLDivElement | null) => {
-		cloud2Animation?.cancel();
-		cloud2Animation = undefined;
-		if (!el) return;
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				cloud2Animation = el.animate(
-					[
-						{ transform: "translate(0, 0)" },
-						{ transform: "translate(20px, 10px)" },
-						{ transform: "translate(0, 0)" },
-					],
-					{ duration: 35000, iterations: Infinity, easing: "linear" },
-				);
-			});
-		});
-	};
-
-	const bindCloud3Inner = (el: HTMLDivElement | null) => {
-		cloud3Animation?.cancel();
-		cloud3Animation = undefined;
-		if (!el) return;
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				cloud3Animation = el.animate(
-					[
-						{ transform: "translate(0, 20px)" },
-						{ transform: "translate(2%, 0)" },
-						{ transform: "translate(0, 0)" },
-					],
-					{
-						duration: 60000,
-						iterations: Infinity,
-						easing: "linear",
-						direction: "alternate",
-					},
-				);
-			});
-		});
-	};
-
-	onMount(() => {
-		onCleanup(() => {
-			cloud1Animation?.cancel();
-			cloud2Animation?.cancel();
-			cloud3Animation?.cancel();
-		});
-	});
-
 	return (
 		<div
 			class="absolute inset-0 z-0 overflow-hidden pointer-events-none opacity-[0.1]"
@@ -267,35 +193,6 @@ function OnboardingAmbientBackdrop() {
 		>
 			<div class="absolute inset-0 custom-bg" />
 			<div class="startup-grain" />
-			<div
-				ref={bindCloud1}
-				class="absolute top-0 right-0 opacity-70 pointer-events-none z-1"
-			>
-				<img
-					class="startup-cloud-image w-screen md:w-[80vw] -mr-40"
-					src={cloud1}
-					alt=""
-				/>
-			</div>
-			<div
-				ref={bindCloud2}
-				class="absolute top-0 left-0 opacity-70 pointer-events-none z-1"
-			>
-				<img
-					class="startup-cloud-image w-screen md:w-[80vw] -ml-40"
-					src={cloud2}
-					alt=""
-				/>
-			</div>
-			<div class="absolute -bottom-[15%] left-1/2 -translate-x-1/2 opacity-70 pointer-events-none z-1">
-				<div ref={bindCloud3Inner}>
-					<img
-						class="startup-cloud-image w-[180vw] md:w-[180vw]"
-						src={cloud3}
-						alt=""
-					/>
-				</div>
-			</div>
 		</div>
 	);
 }
@@ -457,26 +354,6 @@ export default function OnboardingPage() {
 						opacity: 0.5;
 						z-index: 200;
 						mix-blend-mode: overlay;
-					}
-					.startup-cloud-transition {
-						transition: transform 600ms cubic-bezier(0.4, 0, 0.2, 1),
-							opacity 600ms cubic-bezier(0.4, 0, 0.2, 1) !important;
-					}
-					.startup-cloud-1.exiting {
-						transform: translate(-200px, -150px) !important;
-						opacity: 0 !important;
-					}
-					.startup-cloud-2.exiting {
-						transform: translate(200px, -150px) !important;
-						opacity: 0 !important;
-					}
-					.startup-cloud-3.exiting {
-						transform: translate(-50%, 200px) !important;
-						opacity: 0 !important;
-					}
-					.startup-cloud-image {
-						max-width: 100vw;
-						height: auto;
 					}
 					@keyframes bounce {
 						0%, 100% { transform: translateY(0); }
@@ -1673,9 +1550,6 @@ function StartupOverlay(props: {
 	);
 
 	let audioEl: HTMLAudioElement | undefined;
-	let cloud1Animation: Animation | undefined;
-	let cloud2Animation: Animation | undefined;
-	let cloud3Animation: Animation | undefined;
 
 	const [isLogoAnimating, setIsLogoAnimating] = createSignal(false);
 
@@ -1684,65 +1558,6 @@ function StartupOverlay(props: {
 			setIsLogoAnimating(true);
 			setTimeout(() => setIsLogoAnimating(false), 1000);
 		}
-	};
-
-	const bindCloud1 = (el: HTMLDivElement | null) => {
-		cloud1Animation?.cancel();
-		cloud1Animation = undefined;
-		if (!el) return;
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				cloud1Animation = el.animate(
-					[
-						{ transform: "translate(0, 0)" },
-						{ transform: "translate(-20px, 10px)" },
-						{ transform: "translate(0, 0)" },
-					],
-					{ duration: 30000, iterations: Infinity, easing: "linear" },
-				);
-			});
-		});
-	};
-
-	const bindCloud2 = (el: HTMLDivElement | null) => {
-		cloud2Animation?.cancel();
-		cloud2Animation = undefined;
-		if (!el) return;
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				cloud2Animation = el.animate(
-					[
-						{ transform: "translate(0, 0)" },
-						{ transform: "translate(20px, 10px)" },
-						{ transform: "translate(0, 0)" },
-					],
-					{ duration: 35000, iterations: Infinity, easing: "linear" },
-				);
-			});
-		});
-	};
-
-	const bindCloud3Inner = (el: HTMLDivElement | null) => {
-		cloud3Animation?.cancel();
-		cloud3Animation = undefined;
-		if (!el) return;
-		requestAnimationFrame(() => {
-			requestAnimationFrame(() => {
-				cloud3Animation = el.animate(
-					[
-						{ transform: "translate(0, 20px)" },
-						{ transform: "translate(2%, 0)" },
-						{ transform: "translate(0, 0)" },
-					],
-					{
-						duration: 60000,
-						iterations: 1,
-						easing: "cubic-bezier(0.4, 0, 0.2, 1)",
-						fill: "forwards",
-					},
-				);
-			});
-		});
 	};
 
 	onMount(() => {
@@ -1762,9 +1577,6 @@ function StartupOverlay(props: {
 
 		onCleanup(() => {
 			window.removeEventListener("pointerdown", resumeAudio);
-			cloud1Animation?.cancel();
-			cloud2Animation?.cancel();
-			cloud3Animation?.cancel();
 			audioEl?.pause();
 			audioEl = undefined;
 		});
@@ -1780,9 +1592,6 @@ function StartupOverlay(props: {
 	};
 
 	const handleGetStarted = () => {
-		cloud1Animation?.cancel();
-		cloud2Animation?.cancel();
-		cloud3Animation?.cancel();
 		props.onGetStarted();
 	};
 
@@ -1827,47 +1636,6 @@ function StartupOverlay(props: {
 						<IconLucideVolume2 class="w-6 h-6" />
 					)}
 				</button>
-			</div>
-
-			<div
-				ref={bindCloud1}
-				class={cx(
-					"absolute top-0 right-0 opacity-70 pointer-events-none startup-cloud-1 z-1",
-					props.isExiting && "startup-cloud-transition exiting",
-				)}
-			>
-				<img
-					class="startup-cloud-image w-screen md:w-[80vw] -mr-40"
-					src={cloud1}
-					alt=""
-				/>
-			</div>
-			<div
-				ref={bindCloud2}
-				class={cx(
-					"absolute top-0 left-0 opacity-70 pointer-events-none startup-cloud-2 z-1",
-					props.isExiting && "startup-cloud-transition exiting",
-				)}
-			>
-				<img
-					class="startup-cloud-image w-screen md:w-[80vw] -ml-40"
-					src={cloud2}
-					alt=""
-				/>
-			</div>
-			<div
-				class={cx(
-					"absolute -bottom-[15%] left-1/2 -translate-x-1/2 opacity-70 pointer-events-none z-1",
-					props.isExiting && "startup-cloud-transition startup-cloud-3 exiting",
-				)}
-			>
-				<div ref={bindCloud3Inner}>
-					<img
-						class="startup-cloud-image w-[180vw] md:w-[180vw]"
-						src={cloud3}
-						alt=""
-					/>
-				</div>
 			</div>
 
 			<div
